@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+
+<html class="scroll-smooth" lang="fr"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="TontineChain modernise les tontines avec la blockchain: transparence, securite et paiements automatises pour les communautes africaines." name="description"/>
+<title>TontineChain | Le Registre de la Parenté Moderne</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&amp;family=Work+Sans:wght@300;400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+<script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "surface-container-low": "#f5f3ef",
+                      "on-error": "#ffffff",
+                      "surface": "#fbf9f5",
+                      "surface-container-lowest": "#ffffff",
+                      "secondary-container": "#fed65b",
+                      "on-primary-fixed": "#002117",
+                      "surface-variant": "#e4e2de",
+                      "error": "#ba1a1a",
+                      "on-tertiary-container": "#97aeff",
+                      "tertiary-container": "#233e8e",
+                      "tertiary-fixed": "#dce1ff",
+                      "on-tertiary": "#ffffff",
+                      "on-background": "#1b1c1a",
+                      "inverse-surface": "#30312e",
+                      "inverse-primary": "#95d3ba",
+                      "outline": "#707974",
+                      "on-secondary": "#ffffff",
+                      "surface-container": "#efeeea",
+                      "surface-bright": "#fbf9f5",
+                      "primary-container": "#064e3b",
+                      "tertiary": "#002677",
+                      "on-surface-variant": "#404944",
+                      "secondary": "#735c00",
+                      "on-primary": "#ffffff",
+                      "tertiary-fixed-dim": "#b6c4ff",
+                      "surface-container-highest": "#e4e2de",
+                      "on-error-container": "#93000a",
+                      "on-surface": "#1b1c1a",
+                      "inverse-on-surface": "#f2f0ed",
+                      "secondary-fixed": "#ffe088",
+                      "primary": "#003527",
+                      "on-primary-fixed-variant": "#0b513d",
+                      "primary-fixed": "#b0f0d6",
+                      "surface-container-high": "#eae8e4",
+                      "on-secondary-fixed": "#241a00",
+                      "on-secondary-fixed-variant": "#574500",
+                      "background": "#fbf9f5",
+                      "on-tertiary-fixed": "#00164e",
+                      "on-secondary-container": "#745c00",
+                      "error-container": "#ffdad6",
+                      "primary-fixed-dim": "#95d3ba",
+                      "surface-dim": "#dbdad6",
+                      "outline-variant": "#bfc9c3",
+                      "on-tertiary-fixed-variant": "#264191",
+                      "surface-tint": "#2b6954",
+                      "secondary-fixed-dim": "#e9c349",
+                      "on-primary-container": "#80bea6"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "1.5rem",
+                      "full": "9999px"
+              },
+              "fontFamily": {
+                      "headline": ["Manrope", "sans-serif"],
+                      "body": ["Work Sans", "sans-serif"],
+                      "label": ["Work Sans", "sans-serif"]
+              }
+            },
+          }
+        }
+    </script>
+<style>
+    body {
+      font-family: 'Work Sans', sans-serif;
+      background:
+        radial-gradient(circle at 8% 10%, rgba(212, 175, 55, 0.10) 0%, rgba(212, 175, 55, 0) 28%),
+        radial-gradient(circle at 92% 22%, rgba(6, 78, 59, 0.10) 0%, rgba(6, 78, 59, 0) 32%),
+        linear-gradient(180deg, #fbf9f5 0%, #f8f6f1 40%, #fbf9f5 100%);
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.08;
+      background-image: radial-gradient(#003527 0.45px, transparent 0.45px);
+      background-size: 18px 18px;
+      z-index: -1;
+    }
+        h1, h2, h3, .font-headline { font-family: 'Manrope', sans-serif; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        .premium-gradient { background: linear-gradient(135deg, #003527 0%, #064E3B 100%); }
+        .gold-gradient { background: linear-gradient(135deg, #fed65b 0%, #e9c349 100%); }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+    .floating-orb { animation: drift 12s ease-in-out infinite; }
+    .floating-orb.delay { animation-delay: 1.8s; }
+    .kinship-track { animation: marquee 24s linear infinite; }
+    .hero-note { box-shadow: 0 22px 50px rgba(7, 33, 26, 0.14); }
+    .testimonial-card { transition: transform 300ms ease, box-shadow 300ms ease; }
+    .testimonial-card:hover { transform: translateY(-4px) rotate(0deg) !important; box-shadow: 0 24px 46px rgba(27, 28, 26, 0.1); }
+    .flow-card,
+    .security-feature-card,
+    .security-hero-card {
+      animation: cardReveal 700ms ease both;
+      transition: transform 280ms ease, box-shadow 280ms ease;
+    }
+    .flow-card {
+      position: relative;
+      overflow: hidden;
+      isolation: isolate;
+    }
+    .flow-card::before {
+      content: "";
+      position: absolute;
+      width: 220px;
+      height: 220px;
+      right: -90px;
+      top: -120px;
+      border-radius: 9999px;
+      background: radial-gradient(circle, rgba(212, 175, 55, 0.24) 0%, rgba(212, 175, 55, 0) 68%);
+      animation: flowGlow 8s ease-in-out infinite;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .flow-card > * {
+      position: relative;
+      z-index: 1;
+    }
+    .flow-card:nth-child(1) { border-radius: 2rem 2rem 2.2rem 1.6rem; }
+    .flow-card:nth-child(2) { border-radius: 1.8rem 2.2rem 1.8rem 2rem; }
+    .flow-card:nth-child(3) { border-radius: 2rem 1.8rem 2.1rem 1.7rem; }
+    .flow-card:nth-child(4) { border-radius: 1.9rem 1.9rem 2.2rem 1.9rem; }
+    .flow-card:hover,
+    .security-feature-card:hover {
+      transform: translateY(-6px);
+      box-shadow: 0 20px 40px rgba(27, 28, 26, 0.11);
+    }
+    .flow-card:nth-child(1):hover { transform: translateY(-8px) rotate(-0.7deg); }
+    .flow-card:nth-child(2):hover { transform: translateY(-8px) rotate(0.7deg); }
+    .flow-card:nth-child(3):hover { transform: translateY(-8px) rotate(-0.5deg); }
+    .flow-card:nth-child(4):hover { transform: translateY(-8px) rotate(0.55deg); }
+    .security-hero-card:hover {
+      transform: translateY(-5px) scale(1.01);
+      box-shadow: 0 30px 62px rgba(7, 33, 26, 0.34);
+    }
+    .flow-card:nth-child(1), .security-feature-card:nth-child(1) { animation-delay: 90ms; }
+    .flow-card:nth-child(2), .security-feature-card:nth-child(2) { animation-delay: 170ms; }
+    .flow-card:nth-child(3), .security-feature-card:nth-child(3) { animation-delay: 250ms; }
+    .flow-card:nth-child(4), .security-feature-card:nth-child(4) { animation-delay: 330ms; }
+    @media (min-width: 768px) {
+      .workflow-step:nth-child(2) { transform: translateY(14px); }
+      .workflow-step:nth-child(4) { transform: translateY(14px); }
+      .testimonial-card:nth-child(1) { transform: rotate(-1deg); }
+      .testimonial-card:nth-child(2) { transform: rotate(1deg); }
+      .testimonial-card:nth-child(3) { transform: rotate(-0.7deg); }
+    }
+    @keyframes drift {
+      0%, 100% { transform: translateY(0px) translateX(0px); }
+      50% { transform: translateY(-14px) translateX(6px); }
+    }
+    @keyframes marquee {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+    @keyframes cardReveal {
+      0% { opacity: 0; transform: translateY(18px) scale(0.985); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes flowGlow {
+      0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.75; }
+      50% { transform: translate(-14px, 16px) scale(1.08); opacity: 1; }
+    }
+    </style>
+</head>
+<body class="bg-surface text-on-surface selection:bg-secondary-container selection:text-on-secondary-container">
+<div class="floating-orb fixed top-24 -left-24 w-72 h-72 rounded-full bg-secondary-container/20 blur-[95px] pointer-events-none"></div>
+<div class="floating-orb delay fixed top-56 -right-28 w-80 h-80 rounded-full bg-primary/10 blur-[110px] pointer-events-none"></div>
+<!-- TopNavBar -->
+<nav class="sticky top-0 w-full z-50 transition-all duration-300">
+<div class="flex justify-between items-center max-w-7xl mx-auto px-6 md:px-8 h-20 mt-3 rounded-2xl bg-[#fbf9f5]/85 border border-white/70 backdrop-blur-xl shadow-[0_12px_36px_rgba(27,28,26,0.08)]">
+<div class="flex items-center gap-2">
+<img alt="TontineChain Logo" class="h-8 w-8 object-contain" data-alt="minimalist geometric logo of two interlocking circles representing community and blockchain in deep emerald green" src="Logo_TontineChaine.svg"/>
+<span class="text-xl font-extrabold tracking-tighter text-[#003527] dark:text-emerald-50">TontineChain</span>
+</div>
+<div class="hidden md:flex items-center gap-8">
+<a class="font-['Manrope'] font-semibold tracking-tight text-[#003527] dark:text-emerald-50 border-b-2 border-[#fed65b] pb-1 hover:text-[#fed65b] transition-all duration-300" href="#accueil">Accueil</a>
+<a class="font-['Manrope'] font-semibold tracking-tight text-[#404944] dark:text-emerald-200/60 hover:text-[#fed65b] transition-all duration-300" href="#fonctionnement">Fonctionnement</a>
+<a class="font-['Manrope'] font-semibold tracking-tight text-[#404944] dark:text-emerald-200/60 hover:text-[#fed65b] transition-all duration-300" href="#avantages">Avantages</a>
+<a class="font-['Manrope'] font-semibold tracking-tight text-[#404944] dark:text-emerald-200/60 hover:text-[#fed65b] transition-all duration-300" href="#securite">Sécurité</a>
+<a class="font-['Manrope'] font-semibold tracking-tight text-[#404944] dark:text-emerald-200/60 hover:text-[#fed65b] transition-all duration-300" href="#faq">FAQ</a>
+</div>
+<button class="bg-secondary-container text-on-secondary-container px-6 py-2.5 rounded-xl font-bold active:scale-95 transition-transform shadow-sm hover:shadow-md">
+                Commencer
+            </button>
+</div>
+</nav>
+<!-- Hero Section -->
+<section class="relative overflow-hidden pt-14 pb-24 md:pt-24 md:pb-32" id="accueil">
+<div class="absolute left-[6%] top-20 h-24 w-24 rounded-full border border-primary/15 hidden md:block"></div>
+<div class="absolute left-[11%] top-28 h-2 w-2 rounded-full bg-secondary"></div>
+<div class="max-w-7xl mx-auto px-8 grid grid-cols-1 md:grid-cols-2 gap-14 lg:gap-20 items-center">
+<div class="space-y-8 z-10">
+<span class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-surface-container-high text-primary font-bold text-xs uppercase tracking-widest">
+<span class="material-symbols-outlined text-sm">hub</span>
+                    Blockchain &amp; Mobile Money
+                </span>
+<h1 class="text-5xl md:text-7xl font-extrabold text-primary leading-[1.1] tracking-tight">
+                    Sécurisez vos tontines avec la <span class="text-secondary">blockchain</span>
+</h1>
+<p class="text-xl text-on-surface-variant max-w-lg leading-relaxed">
+                    La première plateforme décentralisée qui allie tradition et technologie pour garantir la transparence et la sécurité de vos épargnes communautaires.
+                </p>
+<div class="flex flex-wrap gap-4 pt-4">
+<button class="premium-gradient text-on-primary px-8 py-4 rounded-xl font-bold text-lg hover:opacity-90 active:scale-95 transition-all shadow-xl">
+                        Commencer
+                    </button>
+<button class="flex items-center gap-2 text-primary font-bold px-8 py-4 rounded-xl border border-outline-variant/30 hover:bg-surface-container-low transition-all">
+                        Découvrir la solution
+                        <span class="material-symbols-outlined">arrow_forward</span>
+</button>
+</div>
+<div class="hero-note inline-flex items-start gap-3 bg-surface-container-lowest/95 border border-outline-variant/20 p-4 rounded-2xl">
+<span class="material-symbols-outlined text-secondary mt-0.5">auto_awesome</span>
+<p class="text-sm text-on-surface-variant max-w-sm">Un design inspiré des registres communautaires, avec des signaux visuels qui racontent la confiance.</p>
+</div>
+</div>
+<div class="relative">
+<div class="absolute -top-24 -right-24 w-96 h-96 bg-secondary-container/20 rounded-full blur-[100px]"></div>
+<div class="absolute -left-6 top-10 h-24 w-24 rounded-3xl border border-secondary/40 rotate-12"></div>
+<div class="relative z-10 rounded-[2.2rem] overflow-hidden shadow-2xl transform rotate-2 hover:rotate-0 transition-transform duration-700 border border-white/50 bg-surface p-2">
+<img alt="Finance Interface" class="w-full h-auto object-cover" data-alt="Modern smartphone displaying a clean banking app interface with gold and emerald color accents on a soft background" src="image.jpg"/>
+<div class="absolute bottom-6 left-6 right-6 bg-white/90 backdrop-blur-md p-6 rounded-2xl shadow-lg border border-white/50">
+<div class="flex items-center justify-between">
+<div>
+<p class="text-xs text-outline font-bold uppercase tracking-tighter">Total Collecté</p>
+<p class="text-2xl font-extrabold text-primary">450 000 FCFA</p>
+</div>
+<div class="h-12 w-12 rounded-full bg-secondary-container flex items-center justify-center">
+<span class="material-symbols-outlined text-on-secondary-container">trending_up</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Kinship Strip -->
+<section class="py-8">
+<div class="max-w-7xl mx-auto px-8">
+<div class="rounded-2xl bg-surface-container-low/80 border border-outline-variant/20 overflow-hidden">
+<div class="kinship-track whitespace-nowrap py-4 text-primary font-bold tracking-[0.22em] uppercase text-xs md:text-sm">
+<span class="mx-8">Transparence</span>
+<span class="mx-8">Rituels Digitaux</span>
+<span class="mx-8">Confiance Collective</span>
+<span class="mx-8">Smart Contracts</span>
+<span class="mx-8">Mobile Money</span>
+<span class="mx-8">Transparence</span>
+<span class="mx-8">Rituels Digitaux</span>
+<span class="mx-8">Confiance Collective</span>
+<span class="mx-8">Smart Contracts</span>
+<span class="mx-8">Mobile Money</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Problem Section -->
+<section class="py-24 bg-surface-container-low/75">
+<div class="max-w-7xl mx-auto px-8">
+<div class="mb-16 text-center md:text-left">
+<h2 class="text-3xl md:text-5xl font-extrabold text-primary mb-4">Le problème</h2>
+<p class="text-on-surface-variant text-lg">Pourquoi les tontines traditionnelles ont besoin de modernité.</p>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+<!-- Card 1 -->
+<div data-aos="flip-left" class="bg-surface p-10 rounded-xl space-y-6 hover:shadow-xl transition-shadow duration-500">
+<div class="w-14 h-14 rounded-2xl bg-error/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-error text-3xl">gpp_maybe</span>
+</div>
+<h3 class="text-2xl font-bold text-primary">Manque de confiance</h3>
+<p class="text-on-surface-variant leading-relaxed">Les risques de détournement ou de mauvaise gestion par le trésorier freinent l'adhésion.</p>
+</div>
+<!-- Card 2 -->
+<div data-aos="flip-left" class="bg-surface p-10 rounded-xl space-y-6 hover:shadow-xl transition-shadow duration-500">
+<div class="w-14 h-14 rounded-2xl bg-error/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-error text-3xl">money_off</span>
+</div>
+<h3 class="text-2xl font-bold text-primary">Pertes d’argent</h3>
+<p class="text-on-surface-variant leading-relaxed">L'absence de traçabilité numérique peut entraîner des erreurs comptables fatales pour le groupe.</p>
+</div>
+<!-- Card 3 -->
+<div data-aos="flip-left" class="bg-surface p-10 rounded-xl space-y-6 hover:shadow-xl transition-shadow duration-500">
+<div class="w-14 h-14 rounded-2xl bg-error/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-error text-3xl">history_edu</span>
+</div>
+<h3 class="text-2xl font-bold text-primary">Gestion manuelle</h3>
+<p class="text-on-surface-variant leading-relaxed">Les cahiers et suivis physiques sont archaïques, lents et sujets à la dégradation physique.</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Solution Section -->
+<section class="py-24" id="avantages">
+<div class="max-w-7xl mx-auto px-8 grid grid-cols-1 md:grid-cols-2 gap-20 items-center">
+<div class="order-2 md:order-1 relative">
+<div class="aspect-square rounded-3xl premium-gradient p-1 flex items-center justify-center overflow-hidden">
+<div class="w-full h-full bg-primary-container rounded-[1.4rem] relative overflow-hidden flex items-center justify-center">
+<span class="material-symbols-outlined text-[120px] text-secondary opacity-20 absolute">link</span>
+<div class="relative z-10 text-center p-12">
+<span class="material-symbols-outlined text-6xl text-secondary mb-6" style="font-variation-settings: 'FILL' 1;">shield_with_heart</span>
+<p class="text-white text-2xl font-headline font-bold">Immuabilité Garanti</p>
+<p class="text-on-primary-container/80 mt-4">Chaque transaction est inscrite à jamais sur la blockchain Polygon.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="order-1 md:order-2 space-y-8">
+<h2 class="text-4xl md:text-5xl font-extrabold text-primary">Notre solution : TontineChain</h2>
+<p class="text-on-surface-variant text-lg leading-relaxed">
+                    Nous réinventons l'épargne rotative en utilisant les smart contracts pour automatiser les redistributions sans intermédiaire.
+                </p>
+<ul class="space-y-6">
+<li class="flex items-start gap-4">
+<span class="material-symbols-outlined text-secondary font-bold mt-1">check_circle</span>
+<div>
+<p class="font-bold text-primary">Transparence Totale</p>
+<p class="text-on-surface-variant">Tous les membres voient les flux financiers en temps réel.</p>
+</div>
+</li>
+<li class="flex items-start gap-4">
+<span class="material-symbols-outlined text-secondary font-bold mt-1">check_circle</span>
+<div>
+<p class="font-bold text-primary">Paiements Automatisés</p>
+<p class="text-on-surface-variant">Le "tour" de chaque membre est géré par code, impossible de tricher.</p>
+</div>
+</li>
+<li class="flex items-start gap-4">
+<span class="material-symbols-outlined text-secondary font-bold mt-1">check_circle</span>
+<div>
+<p class="font-bold text-primary">Intégration Mobile Money</p>
+<p class="text-on-surface-variant">Cotisez directement avec Orange, MTN ou Wave.</p>
+</div>
+</li>
+</ul>
+</div>
+</div>
+</section>
+<!-- How It Works -->
+<section class="py-24 bg-surface-container-low/65" id="fonctionnement">
+<div class="max-w-7xl mx-auto px-8">
+<div class="max-w-3xl mb-14">
+<p class="text-xs font-bold uppercase tracking-[0.22em] text-primary/70 mb-4">Parcours Communautaire</p>
+<h2 class="text-4xl md:text-5xl font-extrabold text-primary mb-5">Fonctionnement</h2>
+<p class="text-on-surface-variant text-lg">Un flux en 4 temps pense comme une chorégraphie collective, pas comme une simple suite de cartes.</p>
+</div>
+<div data-aos="fade-right" class="relative grid grid-cols-1 md:grid-cols-12 gap-5">
+<div class="hidden md:block absolute left-[52%] top-[47%] w-16 h-16 rounded-full border border-primary/15"></div>
+<div class="hidden md:block absolute left-[55%] top-[50%] w-2 h-2 rounded-full bg-secondary"></div>
+<article data-aos="fade-right" class="flow-card md:col-span-7 bg-surface-container-lowest/95 backdrop-blur-sm p-7 rounded-[1.6rem] border border-outline-variant/20 shadow-[0_16px_36px_rgba(27,28,26,0.06)] group">
+<div class="flex items-center justify-between mb-5">
+<span class="h-11 w-11 rounded-2xl bg-primary text-white font-black flex items-center justify-center tracking-tight">01</span>
+<span class="text-xs font-bold uppercase tracking-[0.16em] text-primary/60">Initialisation</span>
+</div>
+<h3 class="text-2xl font-extrabold text-primary mb-3">Créez votre groupe</h3>
+<p class="text-on-surface-variant">Définissez le montant de la mise, la fréquence et le nombre de participants.</p>
+<div class="mt-5 inline-flex items-center gap-2 rounded-full bg-primary/5 text-primary px-3 py-1.5 text-xs font-semibold tracking-wide">
+<span class="material-symbols-outlined text-base">groups</span>
+<span>Cercle configuré</span>
+</div>
+<div class="mt-7 h-px bg-gradient-to-r from-secondary/60 to-transparent"></div>
+</article>
+<article data-aos="fade-left" class="flow-card md:col-span-5 bg-primary text-white p-7 rounded-[1.6rem] border border-white/15 shadow-[0_18px_34px_rgba(7,33,26,0.24)] group">
+<div  class="flex items-center justify-between mb-5">
+<span class="h-11 w-11 rounded-2xl bg-secondary-container text-on-secondary-container font-black flex items-center justify-center tracking-tight">02</span>
+<span class="text-xs font-bold uppercase tracking-[0.16em] text-white/70">Activation</span>
+</div>
+<h3 class="text-2xl font-extrabold mb-3">Invitez vos membres</h3>
+<p class="text-white/80">Partagez un lien sécurisé pour que vos proches rejoignent le cercle.</p>
+<div class="mt-5 inline-flex items-center gap-2 rounded-full bg-white/10 text-white px-3 py-1.5 text-xs font-semibold tracking-wide">
+<span class="material-symbols-outlined text-base">mark_email_read</span>
+<span>Invitation vérifiée</span>
+</div>
+<div class="mt-7 h-px bg-gradient-to-r from-secondary-container/70 to-transparent"></div>
+</article>
+<article data-aos="fade-up-right" class="flow-card md:col-span-6 bg-surface-container-lowest p-7 rounded-[1.6rem] border border-outline-variant/20 shadow-[0_16px_36px_rgba(27,28,26,0.06)] group">
+<div class="flex items-center justify-between mb-5">
+<span class="h-11 w-11 rounded-2xl bg-primary text-white font-black flex items-center justify-center tracking-tight">03</span>
+<span class="text-xs font-bold uppercase tracking-[0.16em] text-primary/60">Contribution</span>
+</div>
+<h3 class="text-2xl font-extrabold text-primary mb-3">Cotisez simplement</h3>
+<p class="text-on-surface-variant">Payez vos mensualités via votre portefeuille mobile money habituel.</p>
+<div class="mt-5 inline-flex items-center gap-2 rounded-full bg-primary/5 text-primary px-3 py-1.5 text-xs font-semibold tracking-wide">
+<span class="material-symbols-outlined text-base">account_balance_wallet</span>
+<span>Mobile money direct</span>
+</div>
+<div class="mt-7 h-px bg-gradient-to-r from-secondary/60 to-transparent"></div>
+</article>
+<article data-aos="fade-up-left" class="flow-card md:col-span-6 bg-[#eaf2ee] p-7 rounded-[1.6rem] border border-primary/15 shadow-[0_16px_36px_rgba(27,28,26,0.06)] group">
+<div class="flex items-center justify-between mb-5">
+<span class="h-11 w-11 rounded-2xl bg-secondary-container text-on-secondary-container font-black flex items-center justify-center tracking-tight">04</span>
+<span class="text-xs font-bold uppercase tracking-[0.16em] text-primary/60">Redistribution</span>
+</div>
+<h3 class="text-2xl font-extrabold text-primary mb-3">Recevez le pot</h3>
+<p class="text-on-surface-variant">Quand vient votre tour, les fonds sont virés instantanément sur votre compte.</p>
+<div class="mt-5 inline-flex items-center gap-2 rounded-full bg-primary/10 text-primary px-3 py-1.5 text-xs font-semibold tracking-wide">
+<span class="material-symbols-outlined text-base">bolt</span>
+<span>Virement instantané</span>
+</div>
+<div class="mt-7 h-px bg-gradient-to-r from-primary/35 to-transparent"></div>
+</article>
+</div>
+</div>
+</section>
+<!-- Features Section -->
+<section class="py-24">
+<div class="max-w-7xl mx-auto px-8 grid grid-cols-1 md:grid-cols-2 gap-20 items-center">
+<div class="space-y-6">
+<h2 class="text-4xl md:text-5xl font-extrabold text-primary">Des fonctionnalités pensées pour vous</h2>
+<p class="text-lg text-on-surface-variant">L'alliance parfaite entre l'expérience utilisateur et la sécurité financière.</p>
+<div class="space-y-4">
+<div class="p-6 bg-surface-container-low rounded-xl flex gap-6 hover:bg-surface-container-highest transition-colors">
+<span class="material-symbols-outlined text-secondary text-3xl">dashboard_customize</span>
+<div>
+<h4 class="font-bold text-primary mb-1">Création flexible</h4>
+<p class="text-on-surface-variant text-sm">Tontines flash, sociales ou d'investissement. Vous fixez les règles.</p>
+</div>
+</div>
+<div class="p-6 bg-surface-container-low rounded-xl flex gap-6 hover:bg-surface-container-highest transition-colors">
+<span class="material-symbols-outlined text-secondary text-3xl">monitoring</span>
+<div>
+<h4 class="font-bold text-primary mb-1">Suivi temps réel</h4>
+<p class="text-on-surface-variant text-sm">Visualisez qui a payé et l'ordre de passage en un coup d'œil.</p>
+</div>
+</div>
+<div class="p-6 bg-surface-container-low rounded-xl flex gap-6 hover:bg-surface-container-highest transition-colors">
+<span class="material-symbols-outlined text-secondary text-3xl">notifications_active</span>
+<div>
+<h4 class="font-bold text-primary mb-1">Rappels intelligents</h4>
+<p class="text-on-surface-variant text-sm">Finies les relances gênantes, nos bots s'occupent des rappels de paiement.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="relative flex justify-center">
+<div class="w-full max-w-sm aspect-[9/16] bg-primary rounded-[3rem] p-4 shadow-2xl relative">
+<div class="w-full h-full bg-surface-container-lowest rounded-[2.4rem] overflow-hidden">
+<img alt="Mobile App Screen" class="w-full h-full object-cover" data-alt="close up of a high fidelity mobile app interface showing a tontine progress circle and recent transactions in emerald green and white" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBhIVcFuPXITfKgUAiLd3D7oZzVIjoi-G4wjoDSGIL26Jh16NtCXkM5JOoLfI9kg1u04o6r4jvEL65ssEXJUak5z8tQ7CI_9xlVrdM-v0K7fwVWmfNWid6LbwL3RzwvRXQ2d9DVsjIIMGdHltMNPVQiIMIk3OZlSt6NoH3JG63JjMJbMiNkMJQRgZGL5uy6UdlCxSzpQWqWU3eauHpTHr5pBL0_EhYupIEgZ8k-iMkL00wGR2KrIVYzVe4AxRSuHsvKXaRRqV5WThU"/>
+</div>
+<div class="absolute -right-8 top-1/4 bg-white p-4 rounded-2xl shadow-xl flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+<span class="material-symbols-outlined text-green-600">done_all</span>
+</div>
+<div>
+<p class="text-[10px] text-outline font-bold">PAIEMENT REÇU</p>
+<p class="text-sm font-bold text-primary">Amadou K. +50k FCFA</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Mobile Experience -->
+<section class="py-24 premium-gradient text-on-primary">
+<div class="max-w-7xl mx-auto px-8 text-center">
+<h2 class="text-4xl md:text-6xl font-extrabold mb-8">Une expérience mobile fluide et intuitive</h2>
+<p class="text-on-primary-container text-xl max-w-2xl mx-auto mb-16">Gérez vos tontines n'importe où, n'importe quand. Notre interface a été conçue pour une simplicité maximale.</p>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-12 items-center mb-16">
+<div class="space-y-12 text-right hidden md:block">
+<div>
+<h4 class="text-2xl font-bold mb-2">99.9%</h4>
+<p class="text-on-primary-container/70">Temps de disponibilité du réseau blockchain.</p>
+</div>
+<div>
+<h4 class="text-2xl font-bold mb-2">0 FCFA</h4>
+<p class="text-on-primary-container/70">Frais de gestion pour les petits groupes.</p>
+</div>
+</div>
+<div class="flex justify-center relative">
+<div class="w-64 h-[500px] bg-black rounded-[3rem] border-4 border-emerald-900/50 overflow-hidden shadow-2xl">
+<img alt="App Dashboard" class="w-full h-full object-cover" data-alt="clean dark mode mobile application dashboard with vibrant gold data charts and emerald typography" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDptcrCmkAv6g8weSdaaJcQ1aHCXsjzviX5Y-PokxCcOQeQG7Q9eM0jwkJtHHvv9NfTVPDT3rFOiWFNH1dDKXQebMGuY5ksmu0-byYQBSPNkfZNJaG4rCOV5wZ0LuRpJGqVnq2y6xlt6VQ4lorFDCuX0WTNe0RxVnOrTNMbXBMEJ84RkEefVnxV3pzto4oK13JPMasaRdDvdH9WkuBC7w-DmsYP7q2mWX1GGKQV8yI7m6A2F0HKudqm_g8zxLZ6Fj7-SHsqgTo23W8"/>
+</div>
+</div>
+<div class="space-y-12 text-left hidden md:block">
+<div>
+<h4 class="text-2xl font-bold mb-2">+10k</h4>
+<p class="text-on-primary-container/70">Utilisateurs actifs en Afrique de l'Ouest.</p>
+</div>
+<div>
+<h4 class="text-2xl font-bold mb-2">256-bit</h4>
+<p class="text-on-primary-container/70">Cryptage de données de niveau bancaire.</p>
+</div>
+</div>
+</div>
+<div class="mt-3 w-full max-w-6xl mx-auto">
+<div class="relative overflow-hidden rounded-[2rem] bg-[#dbe7e5] text-primary p-5 md:p-8 shadow-[0_28px_64px_rgba(7,33,26,0.24)]">
+<div class="absolute -top-16 -left-10 w-48 h-48 bg-white/40 rounded-full blur-2xl"></div>
+<div class="absolute -bottom-20 -right-10 w-56 h-56 bg-secondary-container/40 rounded-full blur-2xl"></div>
+<div class="relative grid grid-cols-1 lg:grid-cols-[1.4fr_auto] gap-6 items-center">
+<div>
+<p class="text-xs md:text-sm font-bold uppercase tracking-[0.2em] text-primary/70 mb-3">Acces Mobile Prioritaire</p>
+<h3 class="text-2xl md:text-4xl font-extrabold leading-tight text-primary mb-3">Telechargez l'app des son lancement</h3>
+<p class="text-primary/70 text-base md:text-lg mb-5 max-w-2xl">Un seul module, deux stores, un QR de preinscription. Remplacez les liens quand l'application est prete et tout fonctionne instantanement.</p>
+<div class="grid sm:grid-cols-2 gap-3 md:gap-4">
+<a class="group min-h-[82px] rounded-2xl bg-[#111918] text-white px-5 py-4 flex items-center gap-3 hover:translate-y-[-2px] hover:bg-[#192423] transition-all" data-store-link="ios" href="#" rel="noopener noreferrer" target="_blank">
+<span class="material-symbols-outlined text-3xl">phone_iphone</span>
+<span>
+<span class="block text-xs uppercase tracking-[0.16em] text-white/60">Disponible sur</span>
+<span class="block text-2xl font-extrabold leading-none mt-1">App Store</span>
+</span>
+</a>
+<a class="group min-h-[82px] rounded-2xl bg-[#111918] text-white px-5 py-4 flex items-center gap-3 hover:translate-y-[-2px] hover:bg-[#192423] transition-all" data-store-link="android" href="#" rel="noopener noreferrer" target="_blank">
+<span class="material-symbols-outlined text-3xl">android</span>
+<span>
+<span class="block text-xs uppercase tracking-[0.16em] text-white/60">Disponible sur</span>
+<span class="block text-2xl font-extrabold leading-none mt-1">Google Play</span>
+</span>
+</a>
+</div>
+</div>
+<div class="mx-auto lg:mx-0">
+<div class="relative">
+<div class="absolute inset-0 rounded-[1.75rem] bg-secondary-container/50 blur-xl animate-pulse"></div>
+<div class="relative w-36 h-36 md:w-44 md:h-44 rounded-[1.75rem] bg-white p-3 shadow-xl rotate-3">
+<div class="w-full h-full rounded-[1.15rem] border-2 border-dashed border-primary/30 text-primary flex flex-col items-center justify-center">
+<span class="material-symbols-outlined text-5xl md:text-6xl">qr_code_2</span>
+<span class="text-[11px] md:text-xs font-bold tracking-[0.14em] mt-2">SCAN BIENTOT</span>
+</div>
+</div>
+</div>
+<p class="text-center text-sm text-primary/70 mt-3 font-semibold">QR de preinscription</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Security Section -->
+<section class="py-24 bg-surface relative overflow-hidden" id="securite">
+<img alt="Watermark TontineChain" class="hidden lg:block absolute -right-20 top-10 w-80 h-80 object-contain opacity-[0.05]" src="Logo_TontineChaine.svg"/>
+<div class="max-w-7xl mx-auto px-8">
+<div class="max-w-3xl mb-14">
+<p class="text-xs font-bold uppercase tracking-[0.22em] text-primary/70 mb-4">Architecture de Confiance</p>
+<h2 class="text-4xl md:text-5xl font-extrabold text-primary mb-5">Une sécurité renforcée</h2>
+<p class="text-on-surface-variant text-lg">Un dispositif multicouche: immutabilité on-chain, automatisation et contrôle utilisateur au même endroit.</p>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+<article class="security-hero-card lg:col-span-5 premium-gradient text-white rounded-[2rem] p-8 pb-28 md:p-10 md:pb-24 relative overflow-hidden shadow-[0_24px_56px_rgba(7,33,26,0.30)]">
+<div class="absolute -right-10 -top-10 h-36 w-36 rounded-full bg-secondary-container/25 blur-2xl"></div>
+<span class="inline-flex h-14 w-14 rounded-2xl bg-white/15 items-center justify-center mb-6">
+<span class="material-symbols-outlined text-3xl">verified_user</span>
+</span>
+<h3 class="text-3xl font-extrabold leading-tight mb-4">Protection native blockchain</h3>
+<p class="text-white/85 mb-6">Chaque action importante passe par une preuve cryptographique et une execution automatisee du smart contract.</p>
+<ul class="space-y-3 text-white/85">
+<li class="flex items-center gap-2"><span class="material-symbols-outlined text-secondary-container">check_circle</span>Historique inviolable</li>
+<li class="flex items-center gap-2"><span class="material-symbols-outlined text-secondary-container">check_circle</span>Redistributions sans intervention</li>
+<li class="flex items-center gap-2"><span class="material-symbols-outlined text-secondary-container">check_circle</span>Visibilite totale pour tous les membres</li>
+</ul>
+<div class="inline-block mt-6 md:mt-0 md:absolute md:bottom-7 md:right-7 bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-right">
+<p class="text-[11px] uppercase tracking-[0.16em] text-white/70">Niveau Chiffrement</p>
+<p class="text-xl font-extrabold">256-bit</p>
+</div>
+</article>
+<div class="lg:col-span-7 grid sm:grid-cols-2 gap-5">
+<article class="security-feature-card bg-surface-container-lowest rounded-2xl p-6 border border-outline-variant/20 shadow-[0_12px_30px_rgba(27,28,26,0.06)]">
+<span class="inline-flex h-11 w-11 rounded-xl bg-secondary-container/30 text-secondary items-center justify-center mb-4"><span class="material-symbols-outlined">token</span></span>
+<h4 class="font-extrabold text-xl text-primary mb-2">Blockchain Polygon</h4>
+<p class="text-on-surface-variant text-sm">Vitesse et securite heritees d'Ethereum avec des frais minimes.</p>
+</article>
+<article class="security-feature-card bg-[#eaf2ee] rounded-2xl p-6 border border-primary/15 shadow-[0_12px_30px_rgba(27,28,26,0.06)]">
+<span class="inline-flex h-11 w-11 rounded-xl bg-primary/10 text-primary items-center justify-center mb-4"><span class="material-symbols-outlined">terminal</span></span>
+<h4 class="font-extrabold text-xl text-primary mb-2">Smart Contracts</h4>
+<p class="text-on-surface-variant text-sm">Auditables et autonomes. Personne ne peut modifier les regles.</p>
+</article>
+<article class="security-feature-card bg-surface-container-lowest rounded-2xl p-6 border border-outline-variant/20 shadow-[0_12px_30px_rgba(27,28,26,0.06)]">
+<span class="inline-flex h-11 w-11 rounded-xl bg-secondary-container/30 text-secondary items-center justify-center mb-4"><span class="material-symbols-outlined">fingerprint</span></span>
+<h4 class="font-extrabold text-xl text-primary mb-2">Biométrie</h4>
+<p class="text-on-surface-variant text-sm">Validation de chaque action via FaceID ou empreinte digitale.</p>
+</article>
+<article class="security-feature-card bg-[#f0efe9] rounded-2xl p-6 border border-outline-variant/25 shadow-[0_12px_30px_rgba(27,28,26,0.06)]">
+<span class="inline-flex h-11 w-11 rounded-xl bg-primary/10 text-primary items-center justify-center mb-4"><span class="material-symbols-outlined">vpn_key</span></span>
+<h4 class="font-extrabold text-xl text-primary mb-2">Non-Custodial</h4>
+<p class="text-on-surface-variant text-sm">Vous restez seul maitre de vos cles privees et de vos fonds.</p>
+</article>
+</div>
+</div>
+</div>
+</section>
+<!-- Testimonials -->
+<section class="py-24 bg-surface-container-low overflow-hidden">
+<div class="max-w-7xl mx-auto px-8">
+<h2 class="text-4xl md:text-5xl font-extrabold text-primary text-center mb-16">Ils nous font confiance</h2>
+<div class="flex gap-8 no-scrollbar overflow-x-auto pb-8">
+<!-- Testimonial 1 -->
+<div class="testimonial-card min-w-[320px] md:min-w-[400px] bg-white p-8 rounded-2xl shadow-sm border border-outline-variant/5">
+<div class="flex gap-1 text-secondary mb-4">
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">star</span>
+</div>
+<p class="text-on-surface text-lg italic mb-8 leading-relaxed">"Enfin une solution qui rassure tout le monde dans notre groupe de commerçantes à Dakar. C'est simple et propre."</p>
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-full bg-surface-variant"></div>
+<div>
+<p class="font-bold text-primary">Fatou Diome</p>
+<p class="text-xs text-outline">Entrepreneuse</p>
+</div>
+</div>
+</div>
+<!-- Testimonial 2 -->
+<div class="testimonial-card min-w-[320px] md:min-w-[400px] bg-white p-8 rounded-2xl shadow-sm border border-outline-variant/5">
+<div class="flex gap-1 text-secondary mb-4">
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">star</span>
+</div>
+<p class="text-on-surface text-lg italic mb-8 leading-relaxed">"L'intégration avec Wave est magique. Je n'ai plus besoin de me déplacer pour porter ma cotisation."</p>
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-full bg-surface-variant"></div>
+<div>
+<p class="font-bold text-primary">Jean-Marc Koffi</p>
+<p class="text-xs text-outline">Développeur</p>
+</div>
+</div>
+</div>
+<!-- Testimonial 3 -->
+<div class="testimonial-card min-w-[320px] md:min-w-[400px] bg-white p-8 rounded-2xl shadow-sm border border-outline-variant/5">
+<div class="flex gap-1 text-secondary mb-4">
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">star</span>
+</div>
+<p class="text-on-surface text-lg italic mb-8 leading-relaxed">"La transparence des smart contracts a résolu tous nos conflits internes sur les tours de passage."</p>
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-full bg-surface-variant"></div>
+<div>
+<p class="font-bold text-primary">Assane Diallo</p>
+<p class="text-xs text-outline">Commerçant</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- FAQ Section -->
+<section class="py-24 bg-surface" id="faq">
+<div class="max-w-5xl mx-auto px-8">
+<div class="text-center mb-14">
+<h2 class="text-4xl md:text-5xl font-extrabold text-primary mb-4">FAQ</h2>
+<p class="text-on-surface-variant text-lg">Les reponses aux questions les plus frequentes avant de lancer votre cercle.</p>
+</div>
+<div class="space-y-4">
+<details class="bg-surface-container-low rounded-xl p-6 group" open>
+<summary class="list-none cursor-pointer flex items-center justify-between gap-6">
+<span class="text-lg font-bold text-primary">Comment TontineChain protege mon argent ?</span>
+<span class="material-symbols-outlined text-secondary transition-transform group-open:rotate-45">add</span>
+</summary>
+<p class="text-on-surface-variant mt-4 leading-relaxed">Les cotisations sont gerees par des smart contracts auditable sur Polygon. Les regles de redistribution sont executees automatiquement, sans intervention humaine.</p>
+</details>
+<details class="bg-surface-container-low rounded-xl p-6 group">
+<summary class="list-none cursor-pointer flex items-center justify-between gap-6">
+<span class="text-lg font-bold text-primary">Dois-je etre expert en crypto pour utiliser la plateforme ?</span>
+<span class="material-symbols-outlined text-secondary transition-transform group-open:rotate-45">add</span>
+</summary>
+<p class="text-on-surface-variant mt-4 leading-relaxed">Non. L'experience est concue pour des utilisateurs Mobile Money. Vous pouvez cotiser et suivre votre tour simplement, sans manipuler des outils techniques complexes.</p>
+</details>
+<details class="bg-surface-container-low rounded-xl p-6 group">
+<summary class="list-none cursor-pointer flex items-center justify-between gap-6">
+<span class="text-lg font-bold text-primary">Quels moyens de paiement sont supportes ?</span>
+<span class="material-symbols-outlined text-secondary transition-transform group-open:rotate-45">add</span>
+</summary>
+<p class="text-on-surface-variant mt-4 leading-relaxed">Nous priorisons l'integration avec les services les plus utilises en Afrique de l'Ouest: Orange Money, MTN Mobile Money et Wave.</p>
+</details>
+<details class="bg-surface-container-low rounded-xl p-6 group">
+<summary class="list-none cursor-pointer flex items-center justify-between gap-6">
+<span class="text-lg font-bold text-primary">Combien coute TontineChain ?</span>
+<span class="material-symbols-outlined text-secondary transition-transform group-open:rotate-45">add</span>
+</summary>
+<p class="text-on-surface-variant mt-4 leading-relaxed">La creation d'un cercle est gratuite pour les petits groupes. Des frais progressifs peuvent s'appliquer selon la taille du groupe et les services premium actives.</p>
+</details>
+</div>
+</div>
+</section>
+<!-- Final CTA -->
+<section class="py-24 px-8">
+<div class="max-w-5xl mx-auto gold-gradient p-12 md:p-20 rounded-[2.5rem] text-center shadow-2xl relative overflow-hidden">
+<div class="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -mr-32 -mt-32"></div>
+<div class="relative z-10">
+<h2 class="text-4xl md:text-5xl font-extrabold text-on-secondary-container mb-8">Rejoignez la révolution des tontines digitales</h2>
+<p class="text-secondary text-xl mb-12 max-w-2xl mx-auto font-medium">Commencez à épargner avec votre communauté dès aujourd'hui, en toute sécurité.</p>
+<button class="bg-primary text-white px-12 py-5 rounded-2xl font-bold text-xl hover:bg-primary/90 active:scale-95 transition-all shadow-lg">
+                    Créer ma tontine
+                </button>
+</div>
+</div>
+</section>
+<!-- Footer -->
+<footer class="bg-[#f5f3ef] dark:bg-emerald-950 w-full py-12">
+<div class="max-w-7xl mx-auto px-8 flex flex-col md:flex-row justify-between items-center gap-8">
+<div class="space-y-4">
+<div class="flex items-center gap-2">
+<img alt="TontineChain Logo Footer" class="h-6 w-6 object-contain" data-alt="minimalist geometric logo of two interlocking circles in deep emerald green" src="Logo_TontineChaine.svg"/>
+<span class="text-lg font-bold text-[#003527] dark:text-emerald-50">TontineChain</span>
+</div>
+<p class="font-['Work_Sans'] text-sm tracking-wide text-[#707974] dark:text-emerald-300/50 max-w-xs">Le Registre de la Parenté Moderne. Alliant tradition et technologie.</p>
+</div>
+<div class="flex flex-wrap justify-center gap-8">
+<a class="font-['Work_Sans'] text-sm tracking-wide text-[#707974] dark:text-emerald-300/50 hover:text-[#003527] transition-opacity duration-200" href="#">Mentions Légales</a>
+<a class="font-['Work_Sans'] text-sm tracking-wide text-[#707974] dark:text-emerald-300/50 hover:text-[#003527] transition-opacity duration-200" href="#">Confidentialité</a>
+<a class="font-['Work_Sans'] text-sm tracking-wide text-[#707974] dark:text-emerald-300/50 hover:text-[#003527] transition-opacity duration-200" href="#">Conditions</a>
+<a class="font-['Work_Sans'] text-sm tracking-wide text-[#707974] dark:text-emerald-300/50 hover:text-[#003527] transition-opacity duration-200" href="#">Contact</a>
+</div>
+<div class="flex flex-col items-center md:items-end gap-4">
+<div class="flex gap-4">
+<a class="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center text-primary hover:bg-secondary-container transition-colors" href="#">
+<span class="material-symbols-outlined text-xl">language</span>
+</a>
+<a class="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center text-primary hover:bg-secondary-container transition-colors" href="#">
+<span class="material-symbols-outlined text-xl">share</span>
+</a>
+</div>
+<a aria-label="Retour a l'accueil" class="w-24 h-24 rounded-full bg-surface-container-lowest border border-outline-variant/20 shadow-[0_18px_36px_rgba(27,28,26,0.10)] flex items-center justify-center hover:scale-105 transition-transform" href="#accueil">
+<img alt="Logo TontineChain" class="h-14 w-14 object-contain" src="Logo_TontineChaine.svg"/>
+</a>
+</div>
+</div>
+<div class="max-w-7xl mx-auto px-8 mt-12 pt-8 border-t border-outline-variant/10 text-center">
+<p class="font-['Work_Sans'] text-xs tracking-widest text-[#707974] dark:text-emerald-300/50 uppercase">© 2024 TontineChain. Tous droits réservés.</p>
+</div>
+</footer>
+</body>
+<script>
+  AOS.init();
+</script>
+</html>
