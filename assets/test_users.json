@@ -1,0 +1,32 @@
+[
+  {
+    "id": "u_admin",
+    "name": "Admin Test",
+    "phone": "+22970000001",
+    "password": "TestPass!1",
+    "role": "admin",
+    "otp": "123456",
+    "activeMode": true,
+    "activeSearchStatus": "Actif pour rejoindre une tontine"
+  },
+  {
+    "id": "u_a",
+    "name": "Utilisateur A",
+    "phone": "+22970000002",
+    "password": "TestPass!2",
+    "role": "user",
+    "otp": "123456",
+    "activeMode": true,
+    "activeSearchStatus": "Disponible et en recherche"
+  },
+  {
+    "id": "u_b",
+    "name": "Utilisateur B",
+    "phone": "+22970000003",
+    "password": "TestPass!3",
+    "role": "user",
+    "otp": "123456",
+    "activeMode": false,
+    "activeSearchStatus": "Inactif"
+  }
+]

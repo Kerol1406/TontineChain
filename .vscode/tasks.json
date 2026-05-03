@@ -1,0 +1,19 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "analyze-reception-screen",
+			"type": "shell",
+			"command": "flutter",
+			"args": [
+				"analyze",
+				"lib/screens/reception_cagnotte_screen.dart"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		}
+	]
+}
