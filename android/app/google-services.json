@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "905033181503",
+    "project_id": "tontinechain",
+    "storage_bucket": "tontinechain.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:905033181503:android:e44ab73a4dac0609d48b8a",
+        "android_client_info": {
+          "package_name": "com.example.tontinechain"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBQful-tKWRQvkgngctd8OezGt4cn5FnBs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

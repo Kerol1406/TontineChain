@@ -830,7 +830,7 @@ class ContratSmartScreen extends StatelessWidget {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // BOTTOM NAV (Contrats = index 3)
+  // BOTTOM NAV (Tontines = index 3)
   // ═══════════════════════════════════════════════════════════════════════════
   Widget _buildBottomNavBar(BuildContext context) {
     const int selectedIndex = 3;
@@ -838,7 +838,7 @@ class ContratSmartScreen extends StatelessWidget {
       _NavItem(icon: Icons.grid_view_rounded,     label: 'Accueil'),
       _NavItem(icon: Icons.explore_outlined,      label: 'Explorer'),
       _NavItem(icon: Icons.add_circle_outline,    label: 'Créer'),
-      _NavItem(icon: Icons.receipt_long_outlined, label: 'Contrats'),
+      _NavItem(icon: Icons.receipt_long_outlined, label: 'Tontines'),
       _NavItem(icon: Icons.person_outline,        label: 'Profil'),
     ];
 

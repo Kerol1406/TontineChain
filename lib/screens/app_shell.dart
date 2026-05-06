@@ -33,7 +33,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     _NavDestination(icon: Icons.grid_view_rounded, label: 'Accueil', route: '/dashboard'),
     _NavDestination(icon: Icons.explore_outlined, label: 'Explorer', route: '/explorer'),
     _NavDestination(icon: Icons.add_circle_outline, label: 'Créer', route: '/creer'),
-    _NavDestination(icon: Icons.receipt_long_outlined, label: 'Contrats', route: '/contrats'),
+    _NavDestination(icon: Icons.receipt_long_outlined, label: 'Tontines', route: '/contrats'),
     _NavDestination(icon: Icons.person_outline, label: 'Profil', route: '/profil'),
   ];
 
@@ -86,7 +86,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthState>().currentUser;
-    final String userName = user?['name'] ?? 'Utilisateur';
+    final String userName = user?['displayName'] ?? user?['name'] ?? 'Utilisateur';
     final String userInitials = _getInitials(userName);
 
     // Barre de status

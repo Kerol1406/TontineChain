@@ -4,7 +4,8 @@ import 'package:provider/provider.dart';
 import 'package:tontinechain/constants/app_colors.dart';
 import 'package:tontinechain/models/tontine.dart';
 import 'package:tontinechain/services/auth_state.dart';
-import 'package:tontinechain/services/mock_auth_service.dart';
+import 'package:tontinechain/services/firestore_database_service.dart';
+import 'package:tontinechain/widgets/active_users_notification_dialog.dart';
 
 /// Dialog de partage d'invitation pour une tontine
 /// Affiche QR code, code d'accès unique, lien de partage
@@ -22,19 +23,35 @@ class _InviteShareDialogState extends State<InviteShareDialog> {
   late String _accessCode;
   late String _shareLink;
   bool _copied = false;
-
-  List<Map<String, dynamic>> get _activeUsers {
-    final currentUserId = context.read<AuthState>().currentUser?['id']?.toString();
-    return MockAuthService.instance.activeUsers.where((user) {
-      final userId = user['id']?.toString();
-      return userId != null && userId != currentUserId;
-    }).toList();
-  }
+  bool _loadingActiveUsers = false;
+  List<Map<String, dynamic>> _activeUsers = const [];
 
   @override
   void initState() {
     super.initState();
     _generateCodes();
+    _loadActiveUsers();
+  }
+
+  Future<void> _loadActiveUsers() async {
+    final currentUserId = context.read<AuthState>().currentUser?['uid']?.toString();
+    setState(() => _loadingActiveUsers = true);
+    try {
+      final users = await FirestoreDatabaseService.instance.getUsersLookingForTontine(
+        excludeUid: currentUserId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _activeUsers = users;
+        _loadingActiveUsers = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _activeUsers = const [];
+        _loadingActiveUsers = false;
+      });
+    }
   }
 
   void _generateCodes() {
@@ -104,6 +121,25 @@ class _InviteShareDialogState extends State<InviteShareDialog> {
   }
 
   Widget _buildActiveUsersSection() {
+    if (_loadingActiveUsers) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF5F3EF),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade200, width: 1),
+        ),
+        child: const Center(
+          child: SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
+
     if (_activeUsers.isEmpty) {
       return Container(
         width: double.infinity,
@@ -151,8 +187,14 @@ class _InviteShareDialogState extends State<InviteShareDialog> {
             spacing: 10,
             runSpacing: 10,
             children: _activeUsers.map((user) {
-              final name = (user['name'] ?? 'Utilisateur').toString();
-              final status = (user['activeSearchStatus'] ?? 'Actif').toString();
+              final firstName = (user['firstName'] ?? '').toString().trim();
+              final lastName = (user['lastName'] ?? '').toString().trim();
+              final displayName = (user['displayName'] ?? user['nom'] ?? '').toString().trim();
+              final composed = '$firstName $lastName'.trim();
+              final name = composed.isNotEmpty
+                  ? composed
+                  : (displayName.isNotEmpty ? displayName : 'Utilisateur');
+              final status = (user['activeSearchStatus'] ?? 'Disponible').toString();
               return Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
@@ -193,16 +235,17 @@ class _InviteShareDialogState extends State<InviteShareDialog> {
             width: double.infinity,
             height: 44,
             child: ElevatedButton.icon(
-              onPressed: () {
-                final names = _activeUsers.map((user) => user['name'].toString()).join(', ');
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Lien suggéré aux comptes actifs: $names'),
-                    backgroundColor: AppColors.primary,
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              },
+              onPressed: _activeUsers.isEmpty
+                  ? null
+                  : () {
+                      showDialog(
+                        context: context,
+                        builder: (_) => ActiveUsersNotificationDialog(
+                          tontine: widget.tontine,
+                          activeUsers: _activeUsers,
+                        ),
+                      );
+                    },
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,

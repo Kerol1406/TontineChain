@@ -9,12 +9,13 @@ import 'theme/index.dart';
 import 'services/mock_auth_service.dart';
 import 'services/auth_state.dart';
 
+import 'package:firebase_core/firebase_core.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Charger les comptes tests (DEV seulement)
+  await Firebase.initializeApp();
   await MockAuthService.instance.loadSeedUsers();
-
-  runApp(const TontineChainApp());
+  runApp(TontineChainApp());
 }
 
 class TontineChainApp extends StatelessWidget {

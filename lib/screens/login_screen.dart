@@ -3,7 +3,9 @@ import 'package:tontinechain/constants/app_colors.dart';
 import 'package:tontinechain/widgets/common_button.dart';
 import 'package:provider/provider.dart';
 import 'package:tontinechain/services/auth_state.dart';
+import 'package:tontinechain/services/firebase_auth_service.dart';
 import 'auth_screen.dart';
+import 'otp_verification_screen.dart';
 import 'app_shell.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -19,6 +21,7 @@ class _LoginScreenState extends State<LoginScreen> {
   late List<TextEditingController> _otpControllers;
 
   late Duration _remainingTime;
+  String? _verificationId;
 
   bool _isLoading = false;
   bool _showPassword = false;
@@ -66,15 +69,78 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() => _isLoading = true);
 
-    await Future.delayed(Duration(milliseconds: 800));
+    // Appel Firebase Auth pour la connexion (email/password via resolved phone->email)
+    final result = await FirebaseAuthService().login(
+      identifier: _phoneController.text.trim(),
+      password: _passwordController.text,
+    );
 
-    if (mounted) {
-      setState(() {
-        _isLoading = false;
-        _currentStep = 1;
-        _remainingTime = Duration(seconds: 55);
-        _startOtpTimer();
-      });
+    if (!mounted) return;
+
+    if (result['success'] == true) {
+      final profile = result['profile'] as Map<String, dynamic>?;
+      final phone = (profile != null && profile['phone'] != null)
+          ? profile['phone'] as String
+          : _phoneController.text.trim();
+
+      final otpResult = await Navigator.of(context).push<Map<String, String>>(
+        MaterialPageRoute(
+          builder: (_) => OtpVerificationScreen(phoneNumber: phone),
+        ),
+      );
+
+      if (!mounted) return;
+
+      if (otpResult == null) {
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      final reauth = await FirebaseAuthService().reauthenticateWithPhone(
+        verificationId: otpResult['verificationId'] ?? '',
+        smsCode: otpResult['smsCode'] ?? '',
+        expectedPhone: phone,
+      );
+
+      if (reauth['success'] == true) {
+        setState(() => _isLoading = false);
+
+        final auth = Provider.of<AuthState>(context, listen: false);
+        auth.setUser({
+          'uid': result['uid'],
+          'email': result['email'],
+          'displayName': result['displayName'],
+          'phone': phone,
+          'role': 'user',
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Connexion réussie!'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const AppShell()),
+        );
+      } else {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(reauth['error'] ?? 'Échec de la vérification'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } else {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['error'] ?? 'Erreur de connexion'),
+          backgroundColor: AppColors.error,
+        ),
+      );
     }
   }
 
@@ -83,30 +149,57 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() => _isLoading = true);
 
-    await Future.delayed(Duration(seconds: 1));
+    final verificationId = _verificationId;
+    if (verificationId == null || verificationId.isEmpty) {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('La vérification OTP n\'a pas été initialisée.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+
+    final smsCode = _otpControllers.map((c) => c.text.trim()).join();
+    final reauth = await FirebaseAuthService().reauthenticateWithPhone(
+      verificationId: verificationId,
+      smsCode: smsCode,
+      expectedPhone: _phoneController.text.trim(),
+    );
 
     if (!mounted) return;
 
     setState(() => _isLoading = false);
 
-    // Login successful — set user and navigate to AppShell
-    final auth = Provider.of<AuthState>(context, listen: false);
-    auth.setUser({
-      'name': 'User ' + _phoneController.text,
-      'phone': _phoneController.text,
-      'role': 'user',
-    });
+    if (reauth['success'] == true) {
+      final auth = Provider.of<AuthState>(context, listen: false);
+      auth.setUser({
+        'uid': FirebaseAuthService().currentUser?.uid,
+        'email': FirebaseAuthService().currentUser?.email,
+        'displayName': FirebaseAuthService().currentUser?.displayName,
+        'phone': _phoneController.text.trim(),
+        'role': 'user',
+      });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Connexion réussie!'),
-        backgroundColor: AppColors.success,
-      ),
-    );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Connexion réussie!'),
+          backgroundColor: AppColors.success,
+        ),
+      );
 
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const AppShell()),
-    );
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const AppShell()),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(reauth['error'] ?? 'Échec de la vérification'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
   }
 
   // ================= HEADER CORRIGÉ =================
@@ -386,13 +479,46 @@ Widget _buildOtpStep() {
       SizedBox(height: 12),
 
       Text(
-        'Veuillez saisir le code à 6 chiffres envoyé\nau +229 ••••• 45',
+        'Veuillez saisir le code à 6 chiffres envoyé\npar SMS',
         textAlign: TextAlign.center,
         style: TextStyle(
           fontSize: 14,
           color: AppColors.textSecondary,
           height: 1.5,
         ),
+      ),
+
+      SizedBox(height: 8),
+
+      TextButton(
+        onPressed: () async {
+          final phone = _phoneController.text.trim();
+          if (phone.isEmpty) return;
+          setState(() => _isLoading = true);
+          try {
+            final verificationId = await FirebaseAuthService().sendPhoneVerificationCode(phone);
+            if (!mounted) return;
+            setState(() {
+              _verificationId = verificationId;
+              _remainingTime = const Duration(seconds: 55);
+              _isLoading = false;
+            });
+            _startOtpTimer();
+            for (final controller in _otpControllers) {
+              controller.clear();
+            }
+          } catch (e) {
+            if (!mounted) return;
+            setState(() => _isLoading = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Impossible de renvoyer le code: $e'),
+                backgroundColor: AppColors.error,
+              ),
+            );
+          }
+        },
+        child: const Text('Renvoyer le code'),
       ),
 
       SizedBox(height: 40),

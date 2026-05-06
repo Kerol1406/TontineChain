@@ -9,3 +9,4 @@ export 'explorer_screen.dart';
 export 'tontine_details_screen.dart';
 export 'cotisation_payment_screen.dart';
 export 'app_shell.dart';
+export 'otp_verification_screen.dart';

@@ -3,7 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:tontinechain/constants/app_colors.dart';
 import 'package:tontinechain/services/auth_state.dart';
-import 'package:tontinechain/services/mock_auth_service.dart';
+import 'package:tontinechain/providers/tontine_provider.dart';
+import 'package:tontinechain/services/firestore_database_service.dart';
 import 'package:tontinechain/screens/onboarding_screen.dart';
 
 /// Écran Profil — TontineChain
@@ -18,39 +19,63 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   bool _activeMode = false;
+  bool _updatingActiveMode = false;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     final user = context.watch<AuthState>().currentUser ?? {};
-    _activeMode = user['activeMode'] == true;
+    _activeMode = user['isLookingForTontine'] == true || user['activeMode'] == true;
   }
 
-  void _setActiveMode(bool value) {
+  Future<void> _setActiveMode(bool value) async {
+    if (_updatingActiveMode) return;
+    setState(() => _updatingActiveMode = true);
+
     final authState = context.read<AuthState>();
     final currentUser = Map<String, dynamic>.from(authState.currentUser ?? {});
-    final userId = currentUser['id']?.toString();
+    final userId = currentUser['uid']?.toString();
 
     if (userId != null && userId.isNotEmpty) {
-      MockAuthService.instance.setActiveMode(userId, value);
+      try {
+        await FirestoreDatabaseService.instance.updateUserActiveMode(userId, value);
+      } catch (_) {
+        if (!mounted) return;
+        setState(() => _updatingActiveMode = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Impossible de mettre à jour le mode actif.'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+        return;
+      }
     }
 
     currentUser['activeMode'] = value;
+    currentUser['isLookingForTontine'] = value;
     currentUser['activeSearchStatus'] = value
         ? 'Disponible et en recherche'
         : 'Mode actif désactivé';
     authState.setUser(currentUser);
 
-    setState(() => _activeMode = value);
+    if (!mounted) return;
+    setState(() {
+      _activeMode = value;
+      _updatingActiveMode = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthState>().currentUser ?? {};
-    final String name  = (user['name']  ?? 'Utilisateur').toString();
+    final tontineProvider = context.watch<TontineProvider>();
+    final String name  = (user['displayName']  ?? user['name'] ?? 'Utilisateur').toString();
     final String email = (user['email'] ?? 'non.renseigne@patrimoine.tg').toString();
-    final String phone = (user['phone'] ?? 'Non renseigné').toString();
+    final String phone = (user['phone'] ?? user['phoneNumber'] ?? 'Non renseigné').toString();
     final String initials = _getInitials(name);
+    final patrimoineTotal = _formatAmount(tontineProvider.patrimoineTotal);
+    final isActiveMode = user['isLookingForTontine'] == true || user['activeMode'] == true;
 
     SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -75,7 +100,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const SizedBox(height: 24),
 
                     // Avatar + nom + email + wallet + membre depuis
-                    _buildProfileHeader(initials, name, email),
+                    _buildProfileHeader(initials, name, email, isActiveMode),
                     const SizedBox(height: 20),
 
                     // Trust Score
@@ -83,7 +108,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const SizedBox(height: 16),
 
                     // Patrimoine + boutons
-                    _buildPatrimoineCard(context),
+                    _buildPatrimoineCard(context, patrimoineTotal),
                     const SizedBox(height: 16),
 
                     // Sécurité
@@ -174,7 +199,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(width: 12),
           Switch.adaptive(
             value: _activeMode,
-            onChanged: _setActiveMode,
+            onChanged: _updatingActiveMode ? null : _setActiveMode,
             activeThumbColor: AppColors.primary,
             activeTrackColor: AppColors.primary.withValues(alpha: 0.25),
             inactiveThumbColor: Colors.white,
@@ -234,7 +259,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // ═══════════════════════════════════════════════════════════════════════════
   // PROFILE HEADER — Avatar, nom, email, wallet, membre depuis
   // ═══════════════════════════════════════════════════════════════════════════
-  Widget _buildProfileHeader(String initials, String name, String email) {
+  Widget _buildProfileHeader(String initials, String name, String email, bool isActiveMode) {
     return Center(
       child: Column(
         children: [
@@ -258,17 +283,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
 
-              // Badge vérifié doré
+              // Badge Mode Actif
               Positioned(
-                bottom: 2, right: 2,
+                bottom: -2, right: -2,
                 child: Container(
-                  width: 26, height: 26,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: AppColors.secondary,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AppColors.surface, width: 2),
+                    color: isActiveMode ? AppColors.primary : Colors.grey.shade400,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white, width: 2),
                   ),
-                  child: const Icon(Icons.check, color: AppColors.primary, size: 14),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        isActiveMode ? 'Actif' : 'Inactif',
+                        style: const TextStyle(
+                          fontFamily: 'Plus Jakarta Sans',
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -399,7 +446,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // ═══════════════════════════════════════════════════════════════════════════
   // PATRIMOINE + BOUTONS DÉPOSER / RETIRER
   // ═══════════════════════════════════════════════════════════════════════════
-  Widget _buildPatrimoineCard(BuildContext context) {
+  Widget _buildPatrimoineCard(BuildContext context, String patrimoineTotal) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -430,7 +477,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 8),
 
           // Montant — 0 pour nouveau compte
-          const Text('0',
+          Text(patrimoineTotal,
             style: TextStyle(
               fontFamily: 'Manrope', fontSize: 34,
               fontWeight: FontWeight.w800, color: AppColors.textPrimary,
@@ -501,6 +548,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ],
       ),
     );
+  }
+
+  String _formatAmount(double amount) {
+    final rounded = amount.round();
+    final text = rounded.toString();
+    final buffer = StringBuffer();
+    for (var i = 0; i < text.length; i++) {
+      if (i > 0 && (text.length - i) % 3 == 0) {
+        buffer.write(' ');
+      }
+      buffer.write(text[i]);
+    }
+    return buffer.toString();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import 'package:tontinechain/constants/app_colors.dart';
 import 'package:tontinechain/providers/tontine_provider.dart';
@@ -138,8 +139,9 @@ class _CreateTontineScreenState extends State<CreateTontineScreen> {
       return;
     }
 
-    final authUser  = context.read<AuthState>().currentUser;
-    final creatorId = (authUser?['id'] ?? 'debug_user').toString();
+    final authUser = context.read<AuthState>().currentUser;
+    final creatorId = FirebaseAuth.instance.currentUser?.uid ??
+      (authUser?['uid'] ?? 'debug_user').toString();
 
     setState(() => _isSubmitting = true);
 
@@ -149,6 +151,7 @@ class _CreateTontineScreenState extends State<CreateTontineScreen> {
       description:   '',
       monthlyAmount: _cotisation,
       creatorId:     creatorId,
+      maxMembers:    _membres,
       frequency:     _frequenceLabel,
       isDiscoverable: _appelMembres,
     );

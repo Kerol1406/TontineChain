@@ -3,9 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../constants/app_colors.dart';
-import 'package:tontinechain/services/mock_auth_service.dart';
 import 'package:tontinechain/services/auth_state.dart';
+import 'package:tontinechain/services/firebase_auth_service.dart';
 import 'app_shell.dart';
+import 'otp_verification_screen.dart';
 import 'login_screen.dart';
 
 /// Écran de Création de Compte — TontineChain
@@ -24,7 +25,8 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen> {
   // ── Controllers ────────────────────────────────────────────────────────
-  final _nameController = TextEditingController();
+  final _firstNameController = TextEditingController();
+  final _lastNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -39,7 +41,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   void dispose() {
-    _nameController.dispose();
+    _firstNameController.dispose();
+    _lastNameController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
     _passwordController.dispose();
@@ -48,11 +51,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   // ── Validation ─────────────────────────────────────────────────────────
   bool get _isFormValid =>
-      _nameController.text.trim().isNotEmpty &&
-      _emailController.text.trim().isNotEmpty &&
+      _firstNameController.text.trim().isNotEmpty &&
+      _lastNameController.text.trim().isNotEmpty &&
       _phoneController.text.trim().isNotEmpty &&
-      _passwordController.text.trim().isNotEmpty &&
-      _identityFile != null;
+      _passwordController.text.trim().isNotEmpty;
+  // Email et identité sont maintenant optionnels
 
   // ── Upload Pièce d'identité ────────────────────────────────────────────
 
@@ -173,34 +176,81 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (!_isFormValid) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Veuillez remplir tous les champs et ajouter votre pièce d\'identité.'),
+          content: Text('Veuillez remplir tous les champs obligatoires.'),
           backgroundColor: AppColors.error,
         ),
       );
       return;
     }
     setState(() => _isLoading = true);
-    // TODO: Appel API d'inscription
-    await Future.delayed(const Duration(seconds: 2));
-    setState(() => _isLoading = false);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Compte créé avec succès !'),
-          backgroundColor: AppColors.primary,
+
+    final phone = _phoneController.text.trim();
+
+    try {
+      final otpResult = await Navigator.of(context).push<Map<String, String>>(
+        MaterialPageRoute(
+          builder: (_) => OtpVerificationScreen(phoneNumber: phone),
         ),
       );
-      // Login automatic après enregistrement
-      final auth = Provider.of<AuthState>(context, listen: false);
-      auth.setUser({
-        'name': _nameController.text,
-        'email': _emailController.text,
-        'phone': _phoneController.text,
-        'role': 'user',
-      });
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const AppShell()),
+
+      if (otpResult == null) {
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
+
+      // Appel Firebase Auth pour l'inscription avec linkage du téléphone
+      final result = await FirebaseAuthService().register(
+        firstName: _firstNameController.text.trim(),
+        lastName: _lastNameController.text.trim(),
+        phone: phone,
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+        identityDocumentPath: _identityFile?.path,
+        phoneVerificationId: otpResult['verificationId'],
+        smsCode: otpResult['smsCode'],
       );
+
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+
+      if (result['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Compte créé avec succès !'),
+            backgroundColor: AppColors.primary,
+          ),
+        );
+        final auth = Provider.of<AuthState>(context, listen: false);
+        auth.setUser({
+          'uid': result['uid'],
+          'firstName': _firstNameController.text,
+          'lastName': _lastNameController.text,
+          'email': result['email'],
+          'phone': phone,
+          'displayName': result['displayName'],
+          'role': 'user',
+        });
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const AppShell()),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['error'] ?? 'Erreur lors de l\'inscription'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
     }
   }
 
@@ -248,19 +298,30 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           _buildHeader(),
                           const SizedBox(height: 28),
 
-                          // ── Champ Nom complet ─────────────────────────
-                          _buildFieldLabel('NOM COMPLET'),
+                          // ── Champ Prénoms ─────────────────────────
+                          _buildFieldLabel('PRÉNOMS'),
                           const SizedBox(height: 8),
                           _buildTextField(
-                            controller: _nameController,
-                            hint: 'Kofi Mensah',
+                            controller: _firstNameController,
+                            hint: 'Kofi',
                             prefixIcon: Icons.person_outline,
                             keyboardType: TextInputType.name,
                           ),
                           const SizedBox(height: 20),
 
-                          // ── Champ Email ───────────────────────────────
-                          _buildFieldLabel('EMAIL'),
+                          // ── Champ Nom ─────────────────────────
+                          _buildFieldLabel('NOM'),
+                          const SizedBox(height: 8),
+                          _buildTextField(
+                            controller: _lastNameController,
+                            hint: 'Mensah',
+                            prefixIcon: Icons.person_outline,
+                            keyboardType: TextInputType.name,
+                          ),
+                          const SizedBox(height: 20),
+
+                          // ── Champ Email (optionnel) ───────────────────────────────
+                          _buildFieldLabel('EMAIL (optionnel)'),
                           const SizedBox(height: 8),
                           _buildTextField(
                             controller: _emailController,
@@ -291,8 +352,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           _buildKycBadge(),
                           const SizedBox(height: 16),
 
-                          // ── Zone Upload Pièce d'identité ──────────────
-                          _buildFieldLabel('PIÈCE D\'IDENTITÉ *'),
+                          // ── Zone Upload Pièce d'identité (optionnel) ──────────────
+                          _buildFieldLabel('PIÈCE D\'IDENTITÉ (optionnel)'),
                           const SizedBox(height: 8),
                           _identityFile == null
                               ? _buildDropZone()
@@ -340,45 +401,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget _buildLogo(BuildContext context) {
     return Center(
       child: GestureDetector(
-        onLongPress: () {
-          if (!const bool.fromEnvironment('dart.vm.product')) {
-            if (MockAuthService.instance.users.isEmpty) {
-              // Charger en arrière-plan (DEV)
-              MockAuthService.instance.loadSeedUsers();
-            }
-            showDialog(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: const Text('Comptes tests'),
-                content: SizedBox(
-                  width: double.maxFinite,
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: MockAuthService.instance.users.length,
-                    itemBuilder: (context, index) {
-                      final u = MockAuthService.instance.users[index];
-                      return ListTile(
-                        title: Text(u['name'] ?? ''),
-                        subtitle: Text(u['phone'] ?? ''),
-                        trailing: TextButton(
-                          onPressed: () {
-                            final auth = Provider.of<AuthState>(context, listen: false);
-                            auth.setUser(u);
-                            Navigator.of(context).pop();
-                            Navigator.of(context).pushReplacement(
-                              MaterialPageRoute(builder: (_) => const AppShell()),
-                            );
-                          },
-                          child: const Text('Auto-login'),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-            );
-          }
-        },
+        onLongPress: null,
         child: Container(
           width: 56,
           height: 56,

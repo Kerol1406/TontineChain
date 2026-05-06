@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import '../constants/app_colors.dart';
 import '../models/index.dart';
 import '../providers/tontine_provider.dart';
+import '../services/auth_state.dart';
+import 'join_tontine_screen.dart';
 
 class ExplorerScreen extends StatefulWidget {
   const ExplorerScreen({super.key});
@@ -15,6 +17,16 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
   final TextEditingController _searchController = TextEditingController();
   String _selectedFrequency = 'Tous';
   String _selectedAmount = 'Tous';
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Recharger après le build pour éviter setState() during build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<TontineProvider>().loadTontines();
+    });
+  }
 
   @override
   void dispose() {
@@ -75,6 +87,7 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
       ),
       body: Consumer<TontineProvider>(
         builder: (context, tontineProvider, _) {
+          final currentUserId = context.watch<AuthState>().currentUser?['uid']?.toString();
           final filteredTontines = _filterTontines(tontineProvider.tontines);
 
           // Debug helpers: show loading / error / count when empty
@@ -183,7 +196,7 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                         itemCount: filteredTontines.length,
                         itemBuilder: (context, index) {
                           final tontine = filteredTontines[index];
-                          return _buildTontineCard(context, tontine);
+                          return _buildTontineCard(context, tontine, currentUserId);
                         },
                       ),
               ),
@@ -248,8 +261,12 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
     );
   }
 
-  Widget _buildTontineCard(BuildContext context, Tontine tontine) {
+  Widget _buildTontineCard(BuildContext context, Tontine tontine, String? currentUserId) {
     final isFull = tontine.memberCount >= (tontine.maxMembers ?? 100);
+    final isAlreadyMember = currentUserId != null && currentUserId.isNotEmpty
+        ? tontine.memberIds.contains(currentUserId) || tontine.creatorId == currentUserId
+        : false;
+    final isGuest = currentUserId == null || currentUserId.isEmpty;
     final progressRatio = (tontine.memberCount / (tontine.maxMembers ?? 100)).clamp(0.0, 1.0);
 
     return Container(
@@ -458,15 +475,36 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                 onPressed: isFull
                     ? null
                     : () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Vous avez rejoins la tontine: ${tontine.name}'),
-                            backgroundColor: AppColors.success,
+                        if (isGuest) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Connectez-vous pour rejoindre une tontine.'),
+                              backgroundColor: AppColors.error,
+                            ),
+                          );
+                          return;
+                        }
+
+                        if (isAlreadyMember) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Vous êtes déjà membre de cette tontine.'),
+                              backgroundColor: AppColors.primary,
+                            ),
+                          );
+                          return;
+                        }
+
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => JoinTontineScreen(tontine: tontine),
                           ),
                         );
                       },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: isFull ? AppColors.border : AppColors.primary,
+                  backgroundColor: isFull
+                      ? AppColors.border
+                      : (isAlreadyMember ? AppColors.success.withValues(alpha: 0.16) : AppColors.primary),
                   disabledBackgroundColor: AppColors.border,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
@@ -474,9 +512,13 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
                 child: Text(
-                  isFull ? 'Groupe complet' : 'Rejoindre',
+                  isFull
+                      ? 'Groupe complet'
+                      : (isAlreadyMember ? 'Déjà membre' : 'Rejoindre'),
                   style: TextStyle(
-                    color: isFull ? AppColors.textHint : AppColors.surface,
+                    color: isFull
+                        ? AppColors.textHint
+                        : (isAlreadyMember ? AppColors.success : AppColors.surface),
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                     fontFamily: 'Plus Jakarta Sans',

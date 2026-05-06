@@ -3,21 +3,56 @@ import 'package:provider/provider.dart';
 import 'package:tontinechain/models/index.dart';
 import 'package:tontinechain/constants/app_colors.dart';
 import 'package:tontinechain/services/auth_state.dart';
-import 'package:tontinechain/services/tontine_service.dart';
+import 'package:tontinechain/providers/tontine_provider.dart';
 import 'package:tontinechain/screens/contracts_list_screen.dart';
 import 'package:tontinechain/screens/explorer_screen.dart';
 import 'package:tontinechain/screens/tontine_details_screen.dart';
 
+String _formattedFrequency(String frequency) {
+  final value = frequency.trim().toLowerCase();
+  if (value == 'mois' || value == 'mensuel') return 'mois';
+  if (value == 'trimestre' || value == 'trimestriel') return 'trimestre';
+  if (value == 'hebdo' || value == 'hebdomadaire') return 'semaine';
+  return value;
+}
+
 /// Tableau de bord TontineChain, calé sur la maquette.
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  String? _loadedUserId;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final userId = context.read<AuthState>().currentUser?['uid']?.toString();
+    if (userId != null && userId.isNotEmpty && userId != _loadedUserId) {
+      _loadedUserId = userId;
+      context.read<TontineProvider>().loadHomeSummary(userId);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthState>().currentUser;
-    final String userName = (user?['name'] ?? 'Utilisateur').toString();
-    final visibleTontines = _visibleTontines(context);
-    final nextTourGroupName = _nextTourGroupName(visibleTontines);
+    final tontineProvider = context.watch<TontineProvider>();
+    final String userName = (user?['displayName'] ?? 'Utilisateur').toString();
+    final visibleTontines = tontineProvider.activeUserTontines;
+    final nextDueTontine = tontineProvider.nextDueTontine;
+    final nextTourGroupName = nextDueTontine?.name ?? 'Pas de tontine';
+    final patrimoineTotal = tontineProvider.patrimoineTotalDisplay;
+    final totalEpargne = tontineProvider.totalEpargneDisplay;
+    final totalRecu = tontineProvider.totalRecuDisplay;
+    final nextTourAmount = tontineProvider.nextDueAmount == null
+        ? '--'
+        : '${_formatAmount(tontineProvider.nextDueAmount!)} FCFA';
+    final nextTourDaysCount = _nextTourDaysCount(tontineProvider.nextDueDate);
+    final nextTourDaysLabel = _nextTourDaysLabel(tontineProvider.nextDueDate);
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -34,11 +69,21 @@ class DashboardScreen extends StatelessWidget {
                 children: [
                   _buildGreeting(userName),
                   const SizedBox(height: 18),
-                  _buildPatrimoineCard(),
+                  _buildPatrimoineCard(
+                    patrimoineTotal: patrimoineTotal,
+                    totalEpargne: totalEpargne,
+                    totalRecu: totalRecu,
+                  ),
                   const SizedBox(height: 28),
                   _buildTontinesSection(context, visibleTontines),
                   const SizedBox(height: 24),
-                  _buildNextTourSection(nextTourGroupName),
+                  _buildNextTourSection(
+                    groupName: nextTourGroupName,
+                    daysLabel: nextTourDaysLabel,
+                    daysCount: nextTourDaysCount,
+                    amountLabel: nextTourAmount,
+                    hasTontine: nextDueTontine != null,
+                  ),
                   const SizedBox(height: 24),
                   _buildActionPanel(context),
                 ],
@@ -84,7 +129,11 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  static Widget _buildPatrimoineCard() {
+  static Widget _buildPatrimoineCard({
+    required String patrimoineTotal,
+    required String totalEpargne,
+    required String totalRecu,
+  }) {
     return Container(
       width: double.infinity,
       height: 402,
@@ -117,11 +166,11 @@ class DashboardScreen extends StatelessWidget {
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Expanded(
+                      Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
+                            const Text(
                               'PATRIMOINE\nTOTAL',
                               style: TextStyle(
                                 fontFamily: 'Plus Jakarta Sans',
@@ -133,7 +182,7 @@ class DashboardScreen extends StatelessWidget {
                             ),
                             SizedBox(height: 10),
                             Text(
-                              '2 450\n000',
+                              patrimoineTotal,
                               style: TextStyle(
                                 fontFamily: 'Manrope',
                                 fontSize: 42,
@@ -191,15 +240,15 @@ class DashboardScreen extends StatelessWidget {
                   const Spacer(),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: const [
+                    children: [
                       _WealthMetric(
                         label: 'Total épargné',
-                        value: '1 800 000\nFCFA',
+                        value: totalEpargne == '--' ? '--' : '$totalEpargne\nFCFA',
                         alignRight: false,
                       ),
                       _WealthMetric(
                         label: 'Total reçu',
-                        value: '650 000 FCFA',
+                        value: totalRecu == '--' ? '--' : '$totalRecu FCFA',
                         alignRight: true,
                       ),
                     ],
@@ -213,55 +262,39 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  static List<Tontine> _visibleTontines(BuildContext context) {
-    final user = context.read<AuthState>().currentUser ?? {};
-    final String phone = (user['phone'] ?? '').toString();
-    final service = MockTontineService();
-    final userTontines = service.getTontinesForUserSync(phone);
-
-    final demoTontines = <Tontine>[
-      Tontine(
-        id: 'demo_001',
-        name: 'Cercle "Les Entrepreneurs"',
-        description: 'Démo dashboard',
-        memberCount: 12,
-        maxMembers: 15,
-        monthlyAmount: 50000,
-        status: 'active',
-        createdAt: DateTime.now(),
-        creatorId: 'demo',
-        creatorName: 'Demo',
-        frequency: 'mois',
-        rating: 4.9,
-      ),
-      Tontine(
-        id: 'demo_002',
-        name: 'Fond Immobilier Familial',
-        description: 'Démo dashboard',
-        memberCount: 8,
-        maxMembers: 8,
-        monthlyAmount: 200000,
-        status: 'active',
-        createdAt: DateTime.now(),
-        creatorId: 'demo',
-        creatorName: 'Demo',
-        frequency: 'trimestre',
-        rating: 4.7,
-      ),
-    ];
-
-    return userTontines.isNotEmpty ? userTontines : demoTontines;
+  static String _formatAmount(double amount) {
+    final rounded = amount.round();
+    final text = rounded.toString();
+    final buffer = StringBuffer();
+    for (var i = 0; i < text.length; i++) {
+      if (i > 0 && (text.length - i) % 3 == 0) {
+        buffer.write(' ');
+      }
+      buffer.write(text[i]);
+    }
+    return buffer.toString();
   }
 
-  static String _nextTourGroupName(List<Tontine> tontines) {
-    final demoReception = tontines.where((t) => t.id == 'tontine_tour_reception').toList();
-    if (demoReception.isNotEmpty) {
-      return demoReception.first.name;
+  static String _nextTourDaysLabel(DateTime? dueDate) {
+    if (dueDate == null) {
+      return 'Pas de tontine';
     }
-    if (tontines.isNotEmpty) {
-      return tontines.first.name;
+    final difference = dueDate.difference(DateTime.now()).inDays;
+    if (difference <= 0) {
+      return 'Aujourd\'hui';
     }
-    return 'Tontine Tour Réception';
+    return 'Dans $difference jours';
+  }
+
+  static String _nextTourDaysCount(DateTime? dueDate) {
+    if (dueDate == null) {
+      return '--';
+    }
+    final difference = dueDate.difference(DateTime.now()).inDays;
+    if (difference <= 0) {
+      return '0';
+    }
+    return difference.toString();
   }
 
   static Widget _buildTontinesSection(BuildContext context, List<Tontine> visibleTontines) {
@@ -319,15 +352,13 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  static String _formattedFrequency(String frequency) {
-    final value = frequency.trim().toLowerCase();
-    if (value == 'mois' || value == 'mensuel') return 'mois';
-    if (value == 'trimestre' || value == 'trimestriel') return 'trimestre';
-    if (value == 'hebdo' || value == 'hebdomadaire') return 'semaine';
-    return value;
-  }
-
-  static Widget _buildNextTourSection(String groupName) {
+  static Widget _buildNextTourSection({
+    required String groupName,
+    required String daysLabel,
+    required String daysCount,
+    required String amountLabel,
+    required bool hasTontine,
+  }) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 22),
@@ -421,10 +452,10 @@ class DashboardScreen extends StatelessWidget {
                       ),
                     ),
                   ),
-                  const Column(
+                  Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
+                      const Text(
                         'DANS',
                         style: TextStyle(
                           fontFamily: 'Plus Jakarta Sans',
@@ -433,10 +464,10 @@ class DashboardScreen extends StatelessWidget {
                           color: AppColors.textPrimary,
                         ),
                       ),
-                      SizedBox(height: 2),
+                      const SizedBox(height: 2),
                       Text(
-                        '12',
-                        style: TextStyle(
+                        hasTontine ? daysCount : '--',
+                        style: const TextStyle(
                           fontFamily: 'Manrope',
                           fontSize: 38,
                           fontWeight: FontWeight.w800,
@@ -444,8 +475,8 @@ class DashboardScreen extends StatelessWidget {
                           height: 0.92,
                         ),
                       ),
-                      SizedBox(height: 2),
-                      Text(
+                      const SizedBox(height: 2),
+                      const Text(
                         'JOURS',
                         style: TextStyle(
                           fontFamily: 'Plus Jakarta Sans',
@@ -461,10 +492,10 @@ class DashboardScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 24),
-          const Center(
+          Center(
             child: Text(
-              'Date de réception prévue',
-              style: TextStyle(
+              hasTontine ? 'Date de réception prévue' : 'Pas de tontine',
+              style: const TextStyle(
                 fontFamily: 'Plus Jakarta Sans',
                 fontSize: 13,
                 color: AppColors.textSecondary,
@@ -472,10 +503,10 @@ class DashboardScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          const Center(
+          Center(
             child: Text(
-              '15 Juillet 2024',
-              style: TextStyle(
+              hasTontine ? daysLabel : '--',
+              style: const TextStyle(
                 fontFamily: 'Manrope',
                 fontSize: 19,
                 fontWeight: FontWeight.w800,
@@ -492,9 +523,9 @@ class DashboardScreen extends StatelessWidget {
               color: const Color(0xFFE3E0D8),
               borderRadius: BorderRadius.circular(16),
             ),
-            child: const Column(
+            child: Column(
               children: [
-                Text(
+                const Text(
                   'MONTANT À RECEVOIR',
                   style: TextStyle(
                     fontFamily: 'Plus Jakarta Sans',
@@ -504,10 +535,10 @@ class DashboardScreen extends StatelessWidget {
                     letterSpacing: 1.2,
                   ),
                 ),
-                SizedBox(height: 6),
+                const SizedBox(height: 6),
                 Text(
-                  '600 000 FCFA',
-                  style: TextStyle(
+                  hasTontine ? amountLabel : '--',
+                  style: const TextStyle(
                     fontFamily: 'Manrope',
                     fontSize: 22,
                     fontWeight: FontWeight.w800,
@@ -598,7 +629,7 @@ class DashboardScreen extends StatelessWidget {
                   Icon(Icons.receipt_long_outlined, size: 20),
                   SizedBox(width: 10),
                   Text(
-                    'Voir mes contrats',
+                    'Voir mes tontines',
                     style: TextStyle(
                       fontFamily: 'Plus Jakarta Sans',
                       fontSize: 15,
@@ -833,7 +864,7 @@ class _ActiveTontinesDropdownListState extends State<_ActiveTontinesDropdownList
                   participantsColor:
                       first ? AppColors.primary : AppColors.secondaryDark,
                   subtitle:
-                      'Cotisation : ${tontine.monthlyAmount.toInt()} FCFA / ${DashboardScreen._formattedFrequency(tontine.frequency ?? '')}',
+                      'Cotisation : ${tontine.monthlyAmount.toInt()} FCFA / ${_formattedFrequency(tontine.frequency ?? '')}',
                   onTap: () => widget.onTapTontine(tontine),
                 ),
               );
@@ -856,7 +887,7 @@ class _ActiveTontinesDropdownListState extends State<_ActiveTontinesDropdownList
                   participantsColor:
                       first ? AppColors.primary : AppColors.secondaryDark,
                   subtitle:
-                      'Cotisation : ${tontine.monthlyAmount.toInt()} FCFA / ${DashboardScreen._formattedFrequency(tontine.frequency ?? '')}',
+                      'Cotisation : ${tontine.monthlyAmount.toInt()} FCFA / ${_formattedFrequency(tontine.frequency ?? '')}',
                   onTap: () => widget.onTapTontine(tontine),
                 );
               },
