@@ -142,6 +142,8 @@ class _CreateTontineScreenState extends State<CreateTontineScreen> {
     final authUser = context.read<AuthState>().currentUser;
     final creatorId = FirebaseAuth.instance.currentUser?.uid ??
       (authUser?['uid'] ?? 'debug_user').toString();
+    final creatorWallet = (authUser?['walletAddress'] ?? authUser?['wallet'] ?? creatorId).toString();
+    final creatorPseudo = (authUser?['pseudo'] ?? authUser?['displayName'] ?? authUser?['nom'] ?? 'Créateur').toString();
 
     setState(() => _isSubmitting = true);
 
@@ -154,6 +156,8 @@ class _CreateTontineScreenState extends State<CreateTontineScreen> {
       maxMembers:    _membres,
       frequency:     _frequenceLabel,
       isDiscoverable: _appelMembres,
+      creatorWallet: creatorWallet,
+      creatorPseudo: creatorPseudo,
     );
 
     if (!mounted) return;

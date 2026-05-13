@@ -16,6 +16,7 @@
     "dotenv": "^16.4.5",
     "ethers": "^6.13.2",
     "express": "^4.19.2",
-    "firebase-admin": "^12.5.0"
+    "firebase-admin": "^12.5.0",
+    "solc": "^0.8.20"
   }
 }

@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "compile": "hardhat compile",
-    "deploy": "node scripts/deploy.js",
+    "deploy": "hardhat run scripts/deploy.js",
     "test": "hardhat test"
   },
   "devDependencies": {

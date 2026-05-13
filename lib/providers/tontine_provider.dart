@@ -194,6 +194,8 @@ class TontineProvider extends ChangeNotifier {
     required int maxMembers,
     String? frequency,
     bool isDiscoverable = false,
+    String? creatorWallet,
+    String? creatorPseudo,
   }) async {
     _isLoading = true;
     _error = null;
@@ -209,6 +211,8 @@ class TontineProvider extends ChangeNotifier {
         nombreMaxMembres: maxMembers,
         createur: creatorId,
         isPublic: isDiscoverable,
+        creatorWallet: creatorWallet,
+        creatorPseudo: creatorPseudo,
         frequency: selectedFrequency,
       );
       print('[DEBUG] createTontine: Successfully created tontineId=$tontineId');

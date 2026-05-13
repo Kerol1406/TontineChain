@@ -5,8 +5,51 @@ const { listNotifications, markNotificationRead } = require('../services/notific
 const { listTimelineEvents } = require('../services/historyService');
 const { getScoresForTontineMembers, getAllGlobalScores } = require('../services/scoreService');
 const { getContractByTontineId } = require('../services/contractRegistry');
+const { deployTontineContract } = require('../services/tontineDeploymentService');
 
 const router = express.Router();
+
+router.post('/tontines/deploy', async (req, res) => {
+  try {
+    const {
+      tontineId,
+      name,
+      monthlyAmount,
+      frequency,
+      maxMembers,
+      creatorId,
+      creatorWallet,
+      creatorPseudo,
+      isPublic = false,
+      callMembersEnabled = false
+    } = req.body || {};
+
+    if (!tontineId || !name || monthlyAmount == null || maxMembers == null || !creatorId) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Missing required fields: tontineId, name, monthlyAmount, maxMembers, creatorId'
+      });
+    }
+
+    const result = await deployTontineContract({
+      tontineId,
+      name,
+      monthlyAmount,
+      frequency,
+      maxMembers,
+      creatorId,
+      creatorWallet,
+      creatorPseudo,
+      isPublic,
+      callMembersEnabled
+    });
+
+    return res.status(201).json({ ok: true, result });
+  } catch (error) {
+    console.error('[api] deploy tontine error', error);
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
 
 router.get('/tontines/:tontineId/contract', async (req, res) => {
   try {

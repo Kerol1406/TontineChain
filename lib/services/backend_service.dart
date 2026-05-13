@@ -175,6 +175,42 @@ class BackendService {
     }
   }
 
+  /// POST /api/tontines/deploy
+  Future<Map<String, dynamic>> deployTontineContract(Map<String, dynamic> payload) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/api/tontines/deploy'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(payload),
+      );
+
+      final body = response.body.trim();
+      final contentType = response.headers['content-type'] ?? '';
+
+      if (response.statusCode == 201 && body.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(body);
+          if (decoded is Map<String, dynamic>) {
+            return decoded;
+          }
+        } catch (_) {
+          throw Exception(
+            'Le backend a répondu avec un contenu non JSON sur /api/tontines/deploy. '
+            'Vérifie que le backend Render a bien été redéployé avec le nouvel endpoint. '
+            'status=${response.statusCode}, content-type=$contentType, body=${body.substring(0, body.length > 180 ? 180 : body.length)}',
+          );
+        }
+      }
+
+      throw Exception(
+        'Erreur déploiement tontine: status=${response.statusCode}, content-type=$contentType, body=${body.substring(0, body.length > 180 ? 180 : body.length)}',
+      );
+    } catch (e) {
+      print('[ERROR] deployTontineContract failed: $e');
+      rethrow;
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════
   // Health check
   // ═══════════════════════════════════════════════════════════════

@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
 import '../models/index.dart';
+import 'backend_service.dart';
 
 /// Service Firestore/Storage centralisé pour les données métier.
 ///
@@ -288,7 +289,11 @@ class FirestoreDatabaseService {
     List<String> ordre = const [],
     int cycleActuel = 0,
     String? statut,
+    String? creatorWallet,
+    String? creatorPseudo,
   }) async {
+    final doc = _tontines.doc();
+    final tontineId = doc.id;
     final allMembers = [createur, ...membres];
     final placesRestantes = nombreMaxMembres - allMembers.length;
     final statutAuto = placesRestantes <= 0 ? 'EN_COURS' : 'EN_ATTENTE';
@@ -318,7 +323,20 @@ class FirestoreDatabaseService {
       print('[ERROR] createTontine: Failed to load creator profile: $e');
     }
 
-    final doc = await _tontines.add({
+    final deployment = await BackendService.instance.deployTontineContract({
+      'tontineId': tontineId,
+      'name': name,
+      'monthlyAmount': amount,
+      'frequency': frequency,
+      'maxMembers': nombreMaxMembres,
+      'creatorId': createur,
+      'creatorWallet': creatorWallet ?? createur,
+      'creatorPseudo': creatorPseudo ?? creatorFullName,
+      'isPublic': isPublic,
+      'callMembersEnabled': isPublic,
+    });
+
+    await doc.set({
       'nom': name,
       'description': description,
       'montant': amount,
@@ -338,9 +356,15 @@ class FirestoreDatabaseService {
       'isPublic': isPublic,
       'placesRestantes': placesRestantes,
       'deleted': false,
+      'contractAddress': deployment['result']?['contractAddress'],
+      'contractTransactionHash': deployment['result']?['contractTransactionHash'],
+      'blockchainNetwork': deployment['result']?['network'],
+      'deploymentStatus': 'DEPLOYED',
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
-    });
+      'creatorWallet': creatorWallet ?? createur,
+      'creatorPseudo': creatorPseudo ?? creatorFullName,
+    }, SetOptions(merge: true));
     return doc.id;
   }
 

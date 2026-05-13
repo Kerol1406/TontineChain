@@ -137,6 +137,7 @@ contract TontineGroup {
     mapping(address => uint256) public soldesReserve;
     mapping(address => uint256) public dateDeblockageReserve;
     mapping(uint256 => mapping(address => bool)) public aPaye;
+    mapping(uint256 => mapping(address => bool)) public aPayeATemps;
     uint256 public totalGarantiesBloquees;
 
     TontineStatus public statut;
@@ -247,7 +248,7 @@ contract TontineGroup {
         frequence = _frequence;
         nombreMaxMembres = _nombreMaxMembres;
         callMembersEnabled = _callMembersEnabled;
-        guaranteeMode = _guaranteeMode;
+        guaranteeMode = false;
         backend = _backend;
         statut = TontineStatus.WAITING_MEMBERS;
         seuilEchec = (nombreMaxMembres * 50) / 100;
@@ -268,7 +269,7 @@ contract TontineGroup {
             emit GarantieDeposeee(msg.sender, msg.value, block.timestamp);
         }
 
-        emit TontineCreee(_nom, _cotisation, _frequence, _nombreMaxMembres, _callMembersEnabled, _guaranteeMode, block.timestamp);
+        emit TontineCreee(_nom, _cotisation, _frequence, _nombreMaxMembres, _callMembersEnabled, guaranteeMode, block.timestamp);
         emit MembreRejoint(msg.sender, _pseudo, msg.value, block.timestamp);
     }
 
@@ -536,18 +537,52 @@ contract TontineGroup {
     // COTISATIONS
     // ══════════════════════════════════════════════════════════════
 
+    function _calculateLatePenaltyBps(Cycle storage c) internal view returns (uint256) {
+        if (block.timestamp <= c.dateLimiteCotisation) {
+            return 0;
+        }
+
+        uint256 maxDelay = c.dateFinDelaiGrace - c.dateLimiteCotisation;
+        if (maxDelay == 0) {
+            return 0;
+        }
+
+        uint256 delayDuration = block.timestamp - c.dateLimiteCotisation;
+        uint256 delayRatioBps = (delayDuration * 10000) / maxDelay;
+
+        if (delayRatioBps <= 2500) {
+            return 300; // +3%
+        } else if (delayRatioBps <= 5000) {
+            return 700; // +7%
+        } else if (delayRatioBps <= 7500) {
+            return 1200; // +12%
+        } else if (delayRatioBps <= 10000) {
+            return 1800; // +18%
+        } else if (delayRatioBps <= 12500) {
+            return 3000; // +30%
+        } else if (delayRatioBps <= 15000) {
+            return 4500; // +45%
+        }
+
+        return 6000; // +60%
+    }
+
     function payContribution() external payable seulementMembre tontineActive nonReentrant {
         require(cycleActuel < nombreCycles, "Pas de cycle actif");
 
         Cycle storage c = cycles[cycleActuel];
         require(c.statut == CycleStatus.COLLECTING, "Cycle non collectant");
-        require(msg.value == montantCotisation, "Montant exact requis");
         require(!aPaye[cycleActuel][msg.sender], "Deja paye ce cycle");
+
+        uint256 penaltyBps = _calculateLatePenaltyBps(c);
+        uint256 montantRequis = montantCotisation + ((montantCotisation * penaltyBps) / 10000);
+        require(msg.value == montantRequis, "Montant exact requis (penalite incluse)");
 
         Member storage m = membres[msg.sender];
         require(m.statut == MemberStatus.ACTIVE || m.statut == MemberStatus.LATE, "Statut non eligible");
 
         aPaye[cycleActuel][msg.sender] = true;
+        aPayeATemps[cycleActuel][msg.sender] = block.timestamp <= c.dateLimiteCotisation;
         c.membresAyantPaye.push(msg.sender);
         c.montantCollecte += msg.value;
         m.totalCotise += msg.value;
@@ -559,7 +594,7 @@ contract TontineGroup {
 
         emit CotisationPayee(msg.sender, cycleActuel, msg.value, block.timestamp);
 
-        if (c.montantCollecte == c.montantAttendu) {
+        if (c.montantCollecte >= c.montantAttendu) {
             c.statut = CycleStatus.VERIFYING;
         }
     }
@@ -692,19 +727,9 @@ contract TontineGroup {
         require(address(this).balance >= c.montantCollecte, "Solde contrat insuffisant");
         require(address(this).balance - c.montantCollecte >= totalGarantiesBloquees, "Garanties doivent etre protegees");
 
-        uint256 pourcentageLibere;
-        if (_scoreConfiance >= 90) {
-            pourcentageLibere = 9000;
-        } else if (_scoreConfiance >= 75) {
-            pourcentageLibere = 8000;
-        } else if (_scoreConfiance >= 50) {
-            pourcentageLibere = 7000;
-        } else {
-            pourcentageLibere = 5000;
-        }
-
-        uint256 montantLibere = (c.montantCollecte * pourcentageLibere) / 10000;
-        uint256 montantReserve = c.montantCollecte - montantLibere;
+        bool beneficiairePayeATemps = aPayeATemps[cycleActuel][beneficiaire];
+        uint256 montantReserve = beneficiairePayeATemps ? 0 : (c.montantCollecte * 2000) / 10000;
+        uint256 montantLibere = c.montantCollecte - montantReserve;
 
         c.distributionEffectuee = true;
         c.statut = CycleStatus.FINISHED;

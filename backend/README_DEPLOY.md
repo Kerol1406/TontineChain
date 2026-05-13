@@ -1,7 +1,7 @@
 Deployment checklist — Testnet (Hardhat)
 
-1) Install dev deps (in `backend`):
-   - `npm install --save-dev hardhat @nomiclabs/hardhat-ethers dotenv`
+1) Go to the Hardhat project:
+   - `cd ..\hardhat`
 
 2) Prepare environment (.env):
    - Copy `.env.example` to `.env` and fill values:
@@ -14,11 +14,14 @@ Deployment checklist — Testnet (Hardhat)
    - `npx hardhat compile`
 
 4) Deploy contract (example):
-   - `node scripts/deploy.js "MaTontine" 1000000000000000000 0 6 "PseudoCreateur" true false 0xBACKEND_ADDRESS --network amoy`
+    - `npm run deploy -- --network amoy`
+    - Or with explicit values:
+       - `TONTINE_NAME="MaTontine" COTISATION_WEI=1000000000000000000 FREQUENCE_INDEX=0 MAX_MEMBERS=6 PSEUDO="PseudoCreateur" CALL_MEMBERS_ENABLED=true BACKEND_ADDRESS=0xBACKEND_ADDRESS npm run deploy -- --network amoy`
    - Notes:
      - `cotisation` must be provided in wei units (e.g., `1000000000000000000` for 1 ETH/MATIC in wei)
      - `frequenceIndex` is the enum index expected by the contract (check `TontineGroup.sol`)
-     - `callMembersEnabled` and `guaranteeMode` are `true`/`false`
+       - `callMembersEnabled` is `true`/`false`
+       - `guaranteeMode` is forced to `false` in the current version
 
 5) Register deployed contract in backend:
    - Start backend (or ensure it's reachable): `npm run start`

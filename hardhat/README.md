@@ -29,10 +29,19 @@ npm run compile
 4. Deploy to Sepolia:
 
 ```bash
-npm run deploy --network sepolia
-# or: node scripts/deploy.js --network sepolia
+npm run deploy -- --network sepolia
+# or: npx hardhat run scripts/deploy.js --network sepolia
 ```
 
 Notes
-- The deploy script sends a minimal "guarantee" value to satisfy the constructor when `guaranteeMode` is true. Adjust `_cotisation` / constructor args in `scripts/deploy.js` if you need different values.
+- The deploy script reads constructor values from environment variables when provided:
+	- `TONTINE_NAME`
+	- `COTISATION_WEI`
+	- `FREQUENCE_INDEX`
+	- `MAX_MEMBERS`
+	- `PSEUDO`
+	- `CALL_MEMBERS_ENABLED`
+	- `BACKEND_ADDRESS`
+- The script forces `guaranteeMode = false` for the current business rules.
+- After deployment, register the address in the backend with `npm run register-contract -- <tontineId> <contractAddress> <creatorWallet> [callMembersEnabled=true] [invitationRequired=false]` from the `backend` folder.
 - Do NOT commit your real `.env` to the repository.
