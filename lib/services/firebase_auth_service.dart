@@ -130,26 +130,38 @@ class FirebaseAuthService {
     required String password,
   }) async {
     try {
+      print('========== LOGIN START ==========');
+      print('📱 Identifier reçu: $identifier');
+      
       // For login we require phone + password. Resolve phone -> email via Firestore.
       final resolvedEmail = await _resolveEmailFromIdentifier(identifier);
+      print('📧 Email résolu: $resolvedEmail');
+      
       if (resolvedEmail == null) {
         // Debug: fetch variants to inspect what's in Firestore for this identifier
         final normalized = _normalizePhone(identifier);
+        print('⚠️  Email non trouvé. Normalisé: $normalized');
+        
         final rawProfile = await FirestoreDatabaseService.instance.getUserProfileByPhoneVariants(identifier);
         final normalizedProfile = await FirestoreDatabaseService.instance.getUserProfileByPhoneVariants(normalized);
-        // Print debug info so it appears in the device/emulator logs
+        
+        print('❌ LOGIN DEBUG - identifier: $identifier');
+        print('❌ LOGIN DEBUG - normalized: $normalized');
+        print('❌ LOGIN DEBUG - rawProfile: ${rawProfile ?? 'null'}');
+        print('❌ LOGIN DEBUG - normalizedProfile: ${normalizedProfile ?? 'null'}');
+        
+        // Also search users for fragments matching the identifier to locate stored format
         try {
-          print('LOGIN DEBUG - identifier: $identifier');
-          print('LOGIN DEBUG - normalized: $normalized');
-          print('LOGIN DEBUG - rawProfile: ${rawProfile ?? 'null'}');
-          print('LOGIN DEBUG - normalizedProfile: ${normalizedProfile ?? 'null'}');
-          // Also search users for fragments matching the identifier to locate stored format
           final found = await FirestoreDatabaseService.instance.debugFindUsersByFragment(identifier);
-          print('LOGIN DEBUG - foundUsersCount: ${found.length}');
+          print('❌ LOGIN DEBUG - foundUsersCount: ${found.length}');
           for (final f in found) {
-            print('LOGIN DEBUG - foundUser: ${f['__id']} => phone=${f['phone'] ?? 'null'} telephone=${f['telephone'] ?? 'null'} email=${f['email'] ?? 'null'}');
+            print('❌ LOGIN DEBUG - foundUser: ${f['__id']} => phone=${f['phone'] ?? 'null'} telephone=${f['telephone'] ?? 'null'} email=${f['email'] ?? 'null'}');
           }
-        } catch (e) {}
+        } catch (e) {
+          print('❌ LOGIN DEBUG - Erreur lors de la recherche: $e');
+        }
+        
+        print('========== LOGIN END (FAILED) ==========\n');
         return {
           'success': false,
           'error': 'Utilisateur non trouvé',
@@ -157,6 +169,8 @@ class FirebaseAuthService {
         };
       }
 
+      print('✅ Email trouvé: $resolvedEmail, essai de connexion Firebase...');
+      
       UserCredential userCredential = await _firebaseAuth.signInWithEmailAndPassword(
         email: resolvedEmail,
         password: password,
@@ -164,19 +178,26 @@ class FirebaseAuthService {
 
       final user = userCredential.user;
       if (user == null) {
+        print('❌ User est null après signInWithEmailAndPassword');
+        print('========== LOGIN END (FAILED) ==========\n');
         return {
           'success': false,
           'error': 'Erreur lors de la connexion',
         };
       }
 
+      print('✅ Connexion Firebase réussie pour: ${user.email}');
+      final profile = await FirestoreDatabaseService.instance.getUserProfile(user.uid);
+      print('✅ Profil chargé depuis Firestore');
+      print('========== LOGIN END (SUCCESS) ==========\n');
+      
       return {
         'success': true,
         'uid': user.uid,
         'email': user.email,
         'displayName': user.displayName,
         'emailVerified': user.emailVerified,
-        'profile': await FirestoreDatabaseService.instance.getUserProfile(user.uid),
+        'profile': profile,
       };
     } on FirebaseAuthException catch (e) {
       String errorMessage = 'Erreur de connexion';
@@ -189,12 +210,17 @@ class FirebaseAuthService {
       } else if (e.code == 'user-disabled') {
         errorMessage = 'Compte désactivé';
       }
+      print('❌ FirebaseAuthException: ${e.code} - $errorMessage');
+      print('❌ Message complet: ${e.message}');
+      print('========== LOGIN END (FAILED) ==========\n');
       return {
         'success': false,
         'error': errorMessage,
         'code': e.code,
       };
     } catch (e) {
+      print('❌ Exception non gérée: $e');
+      print('========== LOGIN END (FAILED) ==========\n');
       return {
         'success': false,
         'error': 'Erreur inattendue: $e',
@@ -203,9 +229,24 @@ class FirebaseAuthService {
   }
 
   Future<String?> _resolveEmailFromIdentifier(String identifier) async {
-    final phone = _normalizePhone(identifier);
-    final profile = await FirestoreDatabaseService.instance.getUserProfileByPhoneVariants(phone);
-    return profile?['email'] as String?;
+    try {
+      final phone = _normalizePhone(identifier);
+      print('  📞 Numéro normalisé: $phone');
+      
+      final profile = await FirestoreDatabaseService.instance.getUserProfileByPhoneVariants(phone);
+      
+      if (profile == null) {
+        print('  ⚠️  Aucun profil trouvé pour: $phone');
+        return null;
+      }
+      
+      final email = profile['email'] as String?;
+      print('  ✅ Profil trouvé. Email: $email');
+      return email;
+    } catch (e) {
+      print('  ❌ Erreur lors de la résolution: $e');
+      return null;
+    }
   }
 
   String _normalizePhone(String s) {

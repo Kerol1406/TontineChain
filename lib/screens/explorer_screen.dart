@@ -40,6 +40,10 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
     return tontines.where((tontine) {
       if (!provider.isDiscoverable(tontine.id)) return false;
 
+      final maxMembers = tontine.maxMembers ?? 0;
+      final isFull = maxMembers > 0 && tontine.memberCount >= maxMembers;
+      if (isFull) return false;
+
       // Filtre recherche
       bool matchesSearch = _searchController.text.isEmpty ||
           tontine.name.toLowerCase().contains(_searchController.text.toLowerCase()) ||

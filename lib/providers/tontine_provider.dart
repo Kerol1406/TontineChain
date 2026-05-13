@@ -1,16 +1,13 @@
 import 'package:flutter/material.dart';
 import '../models/index.dart';
 import '../services/index.dart';
+import '../config/app_config.dart';
 
 /// Provider pour la gestion des tontines
 class TontineProvider extends ChangeNotifier {
   final FirestoreDatabaseService _service = FirestoreDatabaseService.instance;
   final MockTontineService _fallbackService = MockTontineService();
-
-  TontineProvider() {
-    // Charger automatiquement les tontines seed au démarrage
-    loadTontines();
-  }
+  final BackendService _backendService = BackendService.instance;
 
   List<Tontine> _tontines = [];
   List<Tontine> _userTontines = [];
@@ -132,15 +129,47 @@ class TontineProvider extends ChangeNotifier {
         _totalEpargne = null;
       }
 
-      final nextDue = await _service.getNextDueTontineForUser(userId);
-      if (nextDue == null) {
-        _nextDueTontine = null;
-        _nextDueDate = null;
-        _nextDueAmount = null;
-      } else {
-        _nextDueTontine = nextDue['tontine'] as Tontine?;
-        _nextDueDate = nextDue['dueDate'] as DateTime?;
-        _nextDueAmount = (nextDue['amount'] as num?)?.toDouble();
+      // Prefer backend-calculated next-due
+      try {
+        final resp = await _backendService.getUserNextDue(userId);
+        if (resp != null && resp['ok'] == true && resp['next'] != null) {
+          final next = resp['next'] as Map<String, dynamic>;
+          final tont = next['tontine'] as Map<String, dynamic>?;
+          if (tont != null) {
+            _nextDueTontine = Tontine(
+              id: tont['id'] ?? '',
+              name: tont['name'] ?? 'Tontine',
+              description: '',
+              monthlyAmount: (tont['monthlyAmount'] is num) ? (tont['monthlyAmount'] as num).toDouble() : 0.0,
+              memberCount: 0,
+              status: tont['status'] ?? 'ACTIVE',
+              createdAt: DateTime.now(),
+              creatorId: tont['creatorId'] ?? '',
+            );
+          } else {
+            _nextDueTontine = null;
+          }
+
+          final dueStr = next['dueDate'] as String?;
+          _nextDueDate = dueStr != null ? DateTime.parse(dueStr) : null;
+          _nextDueAmount = (next['amount'] is num) ? (next['amount'] as num).toDouble() : null;
+        } else {
+          _nextDueTontine = null;
+          _nextDueDate = null;
+          _nextDueAmount = null;
+        }
+      } catch (e) {
+        print('[WARN] backend getUserNextDue failed, falling back to client: $e');
+        final nextDue = await _service.getNextDueTontineForUser(userId);
+        if (nextDue == null) {
+          _nextDueTontine = null;
+          _nextDueDate = null;
+          _nextDueAmount = null;
+        } else {
+          _nextDueTontine = nextDue['tontine'] as Tontine?;
+          _nextDueDate = nextDue['dueDate'] as DateTime?;
+          _nextDueAmount = (nextDue['amount'] as num?)?.toDouble();
+        }
       }
 
       _patrimoineTotal = activeUserTontines.fold<double>(
@@ -252,5 +281,192 @@ class TontineProvider extends ChangeNotifier {
       buffer.write(text[i]);
     }
     return buffer.toString();
+  }
+
+  /// Rafraîchir les données globales après une cotisation
+  /// Cette méthode recharge les tontines de l'utilisateur et le résumé d'accueil
+  Future<void> refreshAfterCotisation(String userId) async {
+    print('[DEBUG] refreshAfterCotisation: Refreshing data for userId=$userId');
+    try {
+      // Recharger les tontines de l'utilisateur
+      _userTontines = await _service.getUserTontinesAsModels(userId);
+      print('[DEBUG] refreshAfterCotisation: Reloaded ${_userTontines.length} user tontines');
+      
+      // Recharger les transactions pour les statistiques
+      final transactions = await _service.getUserTransactions(userId);
+      _totalRecu = _sumTransactions(transactions, 'GAIN');
+      _totalEpargne = _sumTransactions(transactions, 'COTISATION');
+      _hasReceivedAny = (_totalRecu ?? 0) > 0;
+      if (!_hasReceivedAny) {
+        _totalRecu = null;
+        _totalEpargne = null;
+      }
+
+      // Recalculer le patrimoine
+      final activeUserTontines = _userTontines.where(_isActiveTontine).toList(growable: false);
+      _patrimoineTotal = activeUserTontines.fold<double>(
+        0,
+        (sum, tontine) => sum + tontine.monthlyAmount * (tontine.maxMembers ?? tontine.memberCount),
+      );
+
+      // Recharger la prochaine tontine due (backend preferé)
+      try {
+        final resp = await _backendService.getUserNextDue(userId);
+        if (resp != null && resp['ok'] == true && resp['next'] != null) {
+          final next = resp['next'] as Map<String, dynamic>;
+          final tont = next['tontine'] as Map<String, dynamic>?;
+          if (tont != null) {
+            _nextDueTontine = Tontine(
+              id: tont['id'] ?? '',
+              name: tont['name'] ?? 'Tontine',
+              description: '',
+              monthlyAmount: (tont['monthlyAmount'] is num) ? (tont['monthlyAmount'] as num).toDouble() : 0.0,
+              memberCount: 0,
+              status: tont['status'] ?? 'ACTIVE',
+              createdAt: DateTime.now(),
+              creatorId: tont['creatorId'] ?? '',
+            );
+          } else {
+            _nextDueTontine = null;
+          }
+
+          final dueStr = next['dueDate'] as String?;
+          _nextDueDate = dueStr != null ? DateTime.parse(dueStr) : null;
+          _nextDueAmount = (next['amount'] is num) ? (next['amount'] as num).toDouble() : null;
+        } else {
+          _nextDueTontine = null;
+          _nextDueDate = null;
+          _nextDueAmount = null;
+        }
+      } catch (e) {
+        print('[WARN] backend getUserNextDue failed (refresh), falling back: $e');
+        final nextDue = await _service.getNextDueTontineForUser(userId);
+        if (nextDue == null) {
+          _nextDueTontine = null;
+          _nextDueDate = null;
+          _nextDueAmount = null;
+        } else {
+          _nextDueTontine = nextDue['tontine'] as Tontine?;
+          _nextDueDate = nextDue['dueDate'] as DateTime?;
+          _nextDueAmount = (nextDue['amount'] as num?)?.toDouble();
+        }
+      }
+
+      print('[DEBUG] refreshAfterCotisation: Data refresh complete');
+      notifyListeners();
+    } catch (e) {
+      print('[ERROR] refreshAfterCotisation failed: $e');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Méthodes backend
+  // ═══════════════════════════════════════════════════════════════
+
+  /// Charger le profil utilisateur depuis le backend
+  Future<Map<String, dynamic>?> loadUserProfileFromBackend(String userId) async {
+    try {
+      print('[DEBUG] loadUserProfileFromBackend: userId=$userId');
+      final profile = await _backendService.getUserProfile(userId);
+      print('[DEBUG] loadUserProfileFromBackend: Profile loaded successfully');
+      notifyListeners();
+      return profile;
+    } catch (e) {
+      print('[ERROR] loadUserProfileFromBackend failed: $e');
+      return null;
+    }
+  }
+
+  /// Charger le score global depuis le backend
+  Future<double?> loadGlobalScoreFromBackend(String userId) async {
+    try {
+      print('[DEBUG] loadGlobalScoreFromBackend: userId=$userId');
+      final scoreData = await _backendService.getUserGlobalScore(userId);
+      final score = (scoreData['score'] as num?)?.toDouble();
+      print('[DEBUG] loadGlobalScoreFromBackend: Score=$score');
+      return score;
+    } catch (e) {
+      print('[ERROR] loadGlobalScoreFromBackend failed: $e');
+      return null;
+    }
+  }
+
+  /// Charger les tontines de l'utilisateur depuis le backend
+  Future<void> loadUserTontinesFromBackend(String userId) async {
+    print('[DEBUG] loadUserTontinesFromBackend: userId=$userId');
+    _homeSummaryLoading = true;
+    _homeSummaryError = null;
+    notifyListeners();
+
+    try {
+      final tontinesData = await _backendService.getUserTontines(userId);
+      print('[DEBUG] loadUserTontinesFromBackend: Loaded ${tontinesData.length} tontines');
+
+      // Convertir les données backend en modèles Tontine
+      _userTontines = tontinesData
+          .map((data) => Tontine(
+                id: data['id'] ?? '',
+                name: data['name'] ?? '',
+                description: data['description'] ?? '',
+                memberCount: data['memberCount'] ?? 0,
+                monthlyAmount: (data['monthlyAmount'] as num?)?.toDouble() ?? 0,
+                status: data['status'] ?? 'EN_ATTENTE',
+                createdAt: data['createdAt'] != null
+                    ? DateTime.parse(data['createdAt'].toString())
+                    : DateTime.now(),
+                creatorId: data['creatorId'] ?? '',
+                frequency: data['frequency'] ?? 'Mensuel',
+                isDiscoverable: data['isDiscoverable'] ?? false,
+                maxMembers: data['maxMembers'],
+              ))
+          .toList();
+
+      print('[DEBUG] loadUserTontinesFromBackend: Converted to ${_userTontines.length} Tontine models');
+
+      // Charger les stats utilisateur (score, patrimoine)
+      final statsData = await _backendService.getUserStats(userId);
+      _patrimoineTotal = (statsData['patrimoinTotal'] as num?)?.toDouble();
+      _totalRecu = (statsData['totalRecu'] as num?)?.toDouble();
+      _totalEpargne = (statsData['totalEpargne'] as num?)?.toDouble();
+      _hasReceivedAny = (_totalRecu ?? 0) > 0;
+      if (!_hasReceivedAny) {
+        _totalRecu = null;
+        _totalEpargne = null;
+      }
+
+      print('[DEBUG] loadUserTontinesFromBackend: Stats loaded - patrimoine=$_patrimoineTotal');
+    } catch (e) {
+      print('[ERROR] loadUserTontinesFromBackend failed: $e');
+      _homeSummaryError = e.toString();
+    } finally {
+      _homeSummaryLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Charger le score global pour tous les membres d'une tontine
+  Future<Map<String, dynamic>?> loadTontineScoresFromBackend(String tontineId) async {
+    try {
+      print('[DEBUG] loadTontineScoresFromBackend: tontineId=$tontineId');
+      final scores = await _backendService.getTontineScores(tontineId);
+      print('[DEBUG] loadTontineScoresFromBackend: Scores loaded for $tontineId');
+      return scores;
+    } catch (e) {
+      print('[ERROR] loadTontineScoresFromBackend failed: $e');
+      return null;
+    }
+  }
+
+  /// Vérifier si le backend est accessible
+  Future<bool> checkBackendHealth() async {
+    try {
+      print('[DEBUG] checkBackendHealth: Checking backend connectivity');
+      final isHealthy = await _backendService.checkBackendHealth();
+      print('[DEBUG] checkBackendHealth: Backend is ${isHealthy ? 'online' : 'offline'}');
+      return isHealthy;
+    } catch (e) {
+      print('[ERROR] checkBackendHealth failed: $e');
+      return false;
+    }
   }
 }

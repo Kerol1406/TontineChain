@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:tontinechain/constants/app_colors.dart';
 import 'package:tontinechain/models/tontine.dart';
+import 'package:tontinechain/services/auth_state.dart';
+import 'package:tontinechain/services/firestore_database_service.dart';
 
 /// Dialog pour notifier les utilisateurs actifs d'une invitation à une tontine
 class ActiveUsersNotificationDialog extends StatefulWidget {
@@ -60,9 +63,36 @@ class _ActiveUsersNotificationDialogState extends State<ActiveUsersNotificationD
     setState(() => _sendingNotifications = true);
 
     try {
-      // TODO: Implémenter l'envoi de notifications Firebase Cloud Messaging
-      // Pour l'instant, on simule l'envoi
-      await Future.delayed(const Duration(milliseconds: 1500));
+      final currentUser = context.read<AuthState>().currentUser ?? const <String, dynamic>{};
+      final inviterId = (currentUser['uid'] ?? currentUser['userId'] ?? '').toString();
+      final inviterFirstName = (currentUser['firstName'] ?? '').toString().trim();
+      final inviterDisplayName = (currentUser['displayName'] ?? '').toString().trim();
+      final inviterFullName = (currentUser['name'] ?? '').toString().trim();
+      final inviterName = inviterFirstName.isNotEmpty
+          ? inviterFirstName
+          : inviterDisplayName.isNotEmpty
+              ? inviterDisplayName
+              : inviterFullName;
+
+      for (final uid in selectedUids) {
+        final user = widget.activeUsers.firstWhere((u) => (u['uid'] ?? '').toString() == uid,
+            orElse: () => <String, dynamic>{});
+        final inviteeName = _getDisplayName(user);
+        final inviteePhone = (user['phone'] ?? user['telephone'] ?? '').toString();
+        final trustScore = (user['trustScore'] as num?)?.toDouble() ?? 0.0;
+
+        await FirestoreDatabaseService.instance.createInvitation(
+          tontineId: widget.tontine.id,
+          tontineName: widget.tontine.name,
+          inviterId: inviterId,
+          inviterName: inviterName,
+          inviteeId: uid,
+          inviteeName: inviteeName,
+          inviteePhone: inviteePhone,
+          trustScore: trustScore,
+          message: 'Invitation à rejoindre la tontine ${widget.tontine.name}',
+        );
+      }
 
       if (!mounted) return;
       setState(() => _sendingNotifications = false);
@@ -70,7 +100,7 @@ class _ActiveUsersNotificationDialogState extends State<ActiveUsersNotificationD
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Notification${selectedUids.length > 1 ? 's' : ''} envoyée${selectedUids.length > 1 ? 's' : ''} '
+            'Invitation${selectedUids.length > 1 ? 's' : ''} envoyée${selectedUids.length > 1 ? 's' : ''} '
             'à ${selectedUids.length} utilisateur${selectedUids.length > 1 ? 's' : ''}',
           ),
           backgroundColor: AppColors.primary,

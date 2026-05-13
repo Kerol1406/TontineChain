@@ -41,18 +41,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     final user = context.watch<AuthState>().currentUser;
     final tontineProvider = context.watch<TontineProvider>();
-    final String userName = (user?['displayName'] ?? 'Utilisateur').toString();
+    final String firstName = (user?['firstName'] ?? '').toString().trim();
+    final String displayName = (user?['displayName'] ?? '').toString().trim();
+    final String fullName = (user?['name'] ?? '').toString().trim();
+    final String email = (user?['email'] ?? '').toString().trim();
+    final String userName = firstName.isNotEmpty
+      ? firstName
+      : displayName.isNotEmpty
+        ? displayName
+        : fullName.isNotEmpty
+          ? fullName
+          : email.isNotEmpty
+            ? email.split('@').first
+            : 'Utilisateur';
     final visibleTontines = tontineProvider.activeUserTontines;
     final nextDueTontine = tontineProvider.nextDueTontine;
-    final nextTourGroupName = nextDueTontine?.name ?? 'Pas de tontine';
+    final hasAnyTontine = tontineProvider.userTontines.isNotEmpty;
+    final nextTourGroupName = nextDueTontine?.name ??
+      (visibleTontines.isNotEmpty ? visibleTontines.first.name : 'Pas de tontine');
     final patrimoineTotal = tontineProvider.patrimoineTotalDisplay;
     final totalEpargne = tontineProvider.totalEpargneDisplay;
     final totalRecu = tontineProvider.totalRecuDisplay;
     final nextTourAmount = tontineProvider.nextDueAmount == null
-        ? '--'
+      ? (hasAnyTontine ? '--' : '--')
         : '${_formatAmount(tontineProvider.nextDueAmount!)} FCFA';
-    final nextTourDaysCount = _nextTourDaysCount(tontineProvider.nextDueDate);
-    final nextTourDaysLabel = _nextTourDaysLabel(tontineProvider.nextDueDate);
+    final nextTourRelative = _nextTourRelative(tontineProvider.nextDueDate);
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -79,10 +92,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   const SizedBox(height: 24),
                   _buildNextTourSection(
                     groupName: nextTourGroupName,
-                    daysLabel: nextTourDaysLabel,
-                    daysCount: nextTourDaysCount,
+                    daysLabel: nextDueTontine != null
+                      ? nextTourRelative.label
+                        : (visibleTontines.isNotEmpty ? 'Aucune échéance calculée' : '--'),
+                    daysCount: nextTourRelative.value,
                     amountLabel: nextTourAmount,
-                    hasTontine: nextDueTontine != null,
+                    hasTontine: nextDueTontine != null || visibleTontines.isNotEmpty,
                   ),
                   const SizedBox(height: 24),
                   _buildActionPanel(context),
@@ -104,7 +119,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'BIENVENUE DANS VOTRE PATRIMOINE',
+          'BIENVENUE DANS VOTRE ESPACE EPARGNE',
           style: TextStyle(
             fontFamily: 'Plus Jakarta Sans',
             fontSize: 11,
@@ -170,15 +185,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              'PATRIMOINE\nTOTAL',
-                              style: TextStyle(
-                                fontFamily: 'Plus Jakarta Sans',
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white54,
-                                height: 1.05,
-                              ),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    'Mes avoirs',
+                                    style: const TextStyle(
+                                      fontFamily: 'Plus Jakarta Sans',
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.white54,
+                                      height: 1.05,
+                                    ),
+                                  ),
+                                ),
+                                Tooltip(
+                                  message: 'Somme des garanties bloquées, cagnottes à retirer et solde du portefeuille.',
+                                  child: const Padding(
+                                    padding: EdgeInsets.only(left: 8.0),
+                                    child: Icon(
+                                      Icons.info_outline,
+                                      size: 16,
+                                      color: Colors.white54,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                             SizedBox(height: 10),
                             Text(
@@ -198,6 +231,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               style: TextStyle(
                                 fontFamily: 'Plus Jakarta Sans',
                                 fontSize: 18,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.white70,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Composé de : garanties + cagnottes à retirer + solde portefeuille',
+                              style: TextStyle(
+                                fontFamily: 'Plus Jakarta Sans',
+                                fontSize: 12,
                                 fontWeight: FontWeight.w500,
                                 color: Colors.white70,
                               ),
@@ -275,26 +318,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return buffer.toString();
   }
 
-  static String _nextTourDaysLabel(DateTime? dueDate) {
+  static ({String label, String value}) _nextTourRelative(DateTime? dueDate) {
     if (dueDate == null) {
-      return 'Pas de tontine';
+      return (label: 'Pas de tontine', value: '--');
     }
     final difference = dueDate.difference(DateTime.now()).inDays;
     if (difference <= 0) {
-      return 'Aujourd\'hui';
+      return (label: 'Aujourd\'hui', value: '0');
     }
-    return 'Dans $difference jours';
-  }
-
-  static String _nextTourDaysCount(DateTime? dueDate) {
-    if (dueDate == null) {
-      return '--';
+    if (difference < 7) {
+      return (label: 'Dans $difference jours', value: '$difference');
     }
-    final difference = dueDate.difference(DateTime.now()).inDays;
-    if (difference <= 0) {
-      return '0';
+    if (difference < 30) {
+      final weeks = (difference / 7).ceil();
+      return (label: 'Dans $weeks semaine${weeks > 1 ? 's' : ''}', value: '$weeks');
     }
-    return difference.toString();
+    final months = (difference / 30).ceil();
+    return (label: 'Dans $months mois', value: '$months');
   }
 
   static Widget _buildTontinesSection(BuildContext context, List<Tontine> visibleTontines) {
@@ -371,7 +411,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Votre prochain tour',
+            'Votre prochaine cotisation',
             style: TextStyle(
               fontFamily: 'Manrope',
               fontSize: 17,
@@ -494,7 +534,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(height: 24),
           Center(
             child: Text(
-              hasTontine ? 'Date de réception prévue' : 'Pas de tontine',
+              hasTontine
+                  ? (daysLabel == 'Aucune échéance calculée'
+                      ? 'Tontine active détectée'
+                      : 'Date de réception prévue')
+                  : 'Pas de tontine',
               style: const TextStyle(
                 fontFamily: 'Plus Jakarta Sans',
                 fontSize: 13,
@@ -594,7 +638,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   Icon(Icons.add_circle_outline, size: 21),
                   SizedBox(width: 10),
                   Text(
-                    'Rejoindre un nouveau cercle',
+                    'Rejoindre une nouvelle tontine',
                     style: TextStyle(
                       fontFamily: 'Plus Jakarta Sans',
                       fontSize: 15,

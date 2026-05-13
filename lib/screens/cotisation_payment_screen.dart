@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:provider/provider.dart';
 import 'package:tontinechain/constants/app_colors.dart';
 import 'package:tontinechain/models/index.dart';
+import 'package:tontinechain/services/auth_state.dart';
+import 'package:tontinechain/services/firestore_database_service.dart';
+import 'package:tontinechain/providers/tontine_provider.dart';
 
 class CotisationPaymentScreen extends StatefulWidget {
   final Tontine tontine;
@@ -13,8 +17,11 @@ class CotisationPaymentScreen extends StatefulWidget {
 }
 
 class _CotisationPaymentScreenState extends State<CotisationPaymentScreen> {
+  final FirestoreDatabaseService _db = FirestoreDatabaseService.instance;
   int _selectedMethod = 0; // 0 = Mobile Money, 1 = Crypto
   String? _selectedMobileProvider; // 'mtn', 'moov', or 'celtis'
+  String? _payerPhoneNumber;
+  bool _isSubmitting = false;
   static const double _blockchainFee = 150;
 
   @override
@@ -102,21 +109,21 @@ class _CotisationPaymentScreenState extends State<CotisationPaymentScreen> {
                       provider: 'mtn',
                       label: 'MTN Mobile Money',
                       selected: _selectedMobileProvider == 'mtn',
-                      onTap: () => setState(() => _selectedMobileProvider = 'mtn'),
+                      onTap: () => _onMobileProviderSelected('mtn'),
                     ),
                     const SizedBox(height: 10),
                     _MobileProviderCard(
                       provider: 'moov',
                       label: 'Moov Money',
                       selected: _selectedMobileProvider == 'moov',
-                      onTap: () => setState(() => _selectedMobileProvider = 'moov'),
+                      onTap: () => _onMobileProviderSelected('moov'),
                     ),
                     const SizedBox(height: 10),
                     _MobileProviderCard(
                       provider: 'celtis',
                       label: 'Celtis Money',
                       selected: _selectedMobileProvider == 'celtis',
-                      onTap: () => setState(() => _selectedMobileProvider = 'celtis'),
+                      onTap: () => _onMobileProviderSelected('celtis'),
                     ),
                   ],
                   const SizedBox(height: 12),
@@ -137,20 +144,11 @@ class _CotisationPaymentScreenState extends State<CotisationPaymentScreen> {
                     width: double.infinity,
                     height: 58,
                     child: ElevatedButton.icon(
-                      onPressed: (_selectedMethod == 0 && _selectedMobileProvider != null) || _selectedMethod == 1
-                          ? () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Transaction via ${_selectedMethod == 0 ? _getMobileProviderLabel(_selectedMobileProvider!) : 'Portefeuille Crypto'} envoyée.'),
-                                  backgroundColor: AppColors.primary,
-                                  behavior: SnackBarBehavior.floating,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                ),
-                              );
-                            }
-                          : null,
+                      onPressed: _isSubmitting
+                          ? null
+                          : ((_selectedMethod == 0 && _selectedMobileProvider != null) || _selectedMethod == 1)
+                              ? _showPaymentSimulationDialog
+                              : null,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: (_selectedMethod == 0 && _selectedMobileProvider != null) || _selectedMethod == 1
                             ? AppColors.primary
@@ -160,10 +158,21 @@ class _CotisationPaymentScreenState extends State<CotisationPaymentScreen> {
                         shadowColor: AppColors.primary.withValues(alpha: 0.25),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       ),
-                      icon: const Icon(Icons.send_rounded, size: 20),
-                      label: const Text(
-                        'Confirmer et Envoyer',
-                        style: TextStyle(
+                      icon: _isSubmitting
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            )
+                          : const Icon(Icons.send_rounded, size: 20),
+                      label: Text(
+                        _isSubmitting ? 'Traitement...' : 'Confirmer et Envoyer',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
                           fontFamily: 'Plus Jakarta Sans',
                           fontSize: 17,
                           fontWeight: FontWeight.w800,
@@ -367,6 +376,158 @@ class _CotisationPaymentScreenState extends State<CotisationPaymentScreen> {
         ),
       ),
     );
+  }
+
+  void _onMobileProviderSelected(String provider) {
+    setState(() {
+      _selectedMethod = 0;
+      _selectedMobileProvider = provider;
+    });
+    _showPaymentSimulationDialog();
+  }
+
+  Future<void> _showPaymentSimulationDialog() async {
+    final controller = TextEditingController(text: _payerPhoneNumber ?? '');
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text(
+            'Simulation de paiement',
+            style: TextStyle(fontFamily: 'Manrope', fontWeight: FontWeight.w800),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Mode: ${_selectedMethod == 0 ? _getMobileProviderLabel(_selectedMobileProvider ?? 'mtn') : 'Portefeuille Crypto'}',
+                style: const TextStyle(
+                  fontFamily: 'Plus Jakarta Sans',
+                  fontSize: 13,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                keyboardType: TextInputType.phone,
+                decoration: InputDecoration(
+                  hintText: 'Entrez votre numéro',
+                  labelText: 'Numéro de paiement',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Annuler'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final phone = controller.text.trim();
+                if (phone.length < 8) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(
+                      content: Text('Veuillez saisir un numéro valide.'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                  return;
+                }
+
+                final ok = await _submitSimulatedPayment(phone);
+                if (!dialogContext.mounted || !mounted) return;
+                if (ok) {
+                  Navigator.of(dialogContext).pop();
+                  Navigator.of(context).pop(true);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text(
+                'Confirmer la transaction',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<bool> _submitSimulatedPayment(String phoneNumber) async {
+    final userId = context.read<AuthState>().currentUser?['uid']?.toString();
+    if (userId == null || userId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Utilisateur non connecté.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return false;
+    }
+
+    setState(() {
+      _isSubmitting = true;
+    });
+
+    try {
+      await _db.simulateCotisationPayment(
+        tontineId: widget.tontine.id,
+        userId: userId,
+        amount: widget.tontine.monthlyAmount,
+        phoneNumber: phoneNumber,
+        paymentMode: _selectedMethod == 0 ? 'MOBILE_MONEY' : 'CRYPTO',
+        provider: _selectedMethod == 0 ? _selectedMobileProvider : 'crypto_wallet',
+      );
+
+      _payerPhoneNumber = phoneNumber;
+
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Paiement simulé réussi via ${_selectedMethod == 0 ? _getMobileProviderLabel(_selectedMobileProvider ?? 'mtn') : 'Portefeuille Crypto'}.',
+          ),
+          backgroundColor: AppColors.primary,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      );
+
+      // Rafraîchir les données globales via Provider pour synchroniser tous les écrans
+      if (mounted) {
+        await context.read<TontineProvider>().refreshAfterCotisation(userId);
+      }
+
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Échec de la simulation: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return false;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+      }
+    }
   }
 }
 

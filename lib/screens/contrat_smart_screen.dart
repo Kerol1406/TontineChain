@@ -1,17 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import 'package:tontinechain/models/index.dart';
 import 'package:tontinechain/constants/app_colors.dart';
 import 'package:tontinechain/screens/app_shell.dart';
+import 'package:tontinechain/screens/notifications_screen.dart';
 import 'package:tontinechain/services/tontine_service.dart';
+import 'package:tontinechain/services/auth_state.dart';
 
 /// Écran Contrat Intelligent — TontineChain
 /// Sections : Carte verte, Règles, Confiance Technique,
 ///            Registre Blockchain (tableau scroll horizontal avec FutureBuilder)
-class ContratSmartScreen extends StatelessWidget {
+class ContratSmartScreen extends StatefulWidget {
   final Tontine tontine;
 
   const ContratSmartScreen({Key? key, required this.tontine}) : super(key: key);
+
+  @override
+  State<ContratSmartScreen> createState() => _ContratSmartScreenState();
+}
+
+class _ContratSmartScreenState extends State<ContratSmartScreen> {
 
   // ── Formatage montant ──────────────────────────────────────────────────────
   String _formatMontant(double value) {
@@ -33,6 +42,10 @@ class ContratSmartScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final user = context.watch<AuthState>().currentUser;
+    final String userName = user?['displayName'] ?? user?['name'] ?? 'Utilisateur';
+    final String userInitials = _getInitials(userName);
+
     SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.dark,
@@ -43,7 +56,7 @@ class ContratSmartScreen extends StatelessWidget {
       body: SafeArea(
         child: Column(
           children: [
-            _buildAppBar(context),
+            _buildAppBar(context, userInitials),
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -73,7 +86,7 @@ class ContratSmartScreen extends StatelessWidget {
   // ═══════════════════════════════════════════════════════════════════════════
   // APP BAR
   // ═══════════════════════════════════════════════════════════════════════════
-  Widget _buildAppBar(BuildContext context) {
+  Widget _buildAppBar(BuildContext context, String userInitials) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       child: Row(
@@ -85,9 +98,9 @@ class ContratSmartScreen extends StatelessWidget {
               border: Border.all(
                   color: AppColors.secondary.withValues(alpha: 0.6), width: 2),
             ),
-            child: const Center(
-              child: Text('TC',
-                style: TextStyle(
+            child: Center(
+              child: Text(userInitials,
+                style: const TextStyle(
                   fontFamily: 'Manrope', fontSize: 14,
                   fontWeight: FontWeight.w700, color: Colors.white,
                 )),
@@ -101,16 +114,24 @@ class ContratSmartScreen extends StatelessWidget {
               letterSpacing: -0.3,
             )),
           const Spacer(),
-          Container(
-            width: 42, height: 42,
-            decoration: BoxDecoration(
-              color: AppColors.surface, shape: BoxShape.circle,
-              boxShadow: [BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.06),
-                  blurRadius: 8, offset: const Offset(0, 2))],
+          GestureDetector(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const NotificationsScreen()),
+              );
+            },
+            child: Container(
+              width: 42, height: 42,
+              decoration: BoxDecoration(
+                color: AppColors.surface, shape: BoxShape.circle,
+                boxShadow: [BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.06),
+                    blurRadius: 8, offset: const Offset(0, 2))],
+              ),
+              child: const Icon(Icons.notifications_outlined,
+                  color: AppColors.primary, size: 22),
             ),
-            child: const Icon(Icons.notifications_outlined,
-                color: AppColors.primary, size: 22),
           ),
         ],
       ),
@@ -177,7 +198,7 @@ class ContratSmartScreen extends StatelessWidget {
                 const SizedBox(height: 16),
 
                 // Nom tontine
-                Text(tontine.name,
+                Text(widget.tontine.name,
                   style: const TextStyle(
                     fontFamily: 'Manrope', fontSize: 24,
                     fontWeight: FontWeight.w800, color: Colors.white,
@@ -216,7 +237,7 @@ class ContratSmartScreen extends StatelessWidget {
 
                       // Montant doré
                       Text(
-                        _formatMontant(tontine.monthlyAmount),
+                        _formatMontant(widget.tontine.monthlyAmount),
                         style: const TextStyle(
                           fontFamily: 'Manrope', fontSize: 28,
                           fontWeight: FontWeight.w800,
@@ -271,30 +292,34 @@ class ContratSmartScreen extends StatelessWidget {
   // RÈGLES DE SOLIDARITÉ
   // ═══════════════════════════════════════════════════════════════════════════
   Widget _buildReglesSection() {
-    const regles = [
+    final maxMembers = widget.tontine.maxMembers ?? 12;
+    final frequency = _formatFrequency(widget.tontine.frequency);
+    final montant = _formatMontant(widget.tontine.monthlyAmount.toDouble());
+    
+    final regles = [
       _RegleItem(
         icon: Icons.access_time_rounded,
-        iconBg: Color(0xFF1A3C34),
+        iconBg: const Color(0xFF1A3C34),
         titre: 'Ordre de passage',
-        description: 'Attribution aléatoire via Oracle Chainlink le 1er de chaque mois.',
+        description: "Classement par performance et ancienneté : l'ordre est déterminé par votre score de confiance (réputation). En cas d'égalité, votre date d'adhésion à TontineChain détermine le classement.",
       ),
       _RegleItem(
         icon: Icons.warning_amber_rounded,
-        iconBg: Color(0xFF7A3000),
+        iconBg: const Color(0xFF7A3000),
         titre: 'Pénalités de retard',
-        description: '5% de frais additionnels après 24h de retard, redistribués aux membres.',
+        description: "Impact sur votre tour d'allocation : en cas de non-paiement ou retard de cotisation, votre rang d'allocation diminue. Vous risquez de ne pas recevoir automatiquement la totalité de votre allocation au moment prévu.",
       ),
       _RegleItem(
         icon: Icons.people_alt_rounded,
-        iconBg: Color(0xFF1A3C34),
+        iconBg: const Color(0xFF1A3C34),
         titre: 'Membres requis',
-        description: '12 participants actifs. Le contrat se suspend si un membre se retire.',
+        description: '$maxMembers participants actifs. Le contrat démarre quand ce nombre est atteint.',
       ),
       _RegleItem(
         icon: Icons.account_balance_wallet_outlined,
-        iconBg: Color(0xFF4A3000),
+        iconBg: const Color(0xFF4A3000),
         titre: 'Fréquence',
-        description: 'Mensuelle — 50 000 FCFA par membre chaque mois.',
+        description: '$frequency — $montant FCFA par membre à chaque cycle.',
       ),
     ];
 
@@ -529,6 +554,8 @@ class ContratSmartScreen extends StatelessWidget {
             },
             icon: const Icon(Icons.open_in_new_rounded, size: 18),
             label: const Text('Explorer sur Polygonscan',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontFamily: 'Plus Jakarta Sans', fontSize: 14,
                 fontWeight: FontWeight.w700,
@@ -567,8 +594,8 @@ class ContratSmartScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         child: FutureBuilder<List<Object>>(
           future: Future.wait([
-            MockTontineService().getHistoricPayments(tontine.id),
-            MockTontineService().getMembers(tontine.id),
+            MockTontineService().getHistoricPayments(widget.tontine.id),
+            MockTontineService().getMembers(widget.tontine.id),
           ]),
           builder: (context, snapshot) {
             // ── Chargement ─────────────────────────────────────────────────
@@ -648,7 +675,7 @@ class ContratSmartScreen extends StatelessWidget {
                         final member = members.firstWhere(
                           (m) => m.id == p.memberId,
                           orElse: () => Member(
-                            id: p.memberId, tontineId: tontine.id,
+                            id: p.memberId, tontineId: widget.tontine.id,
                             name: 'Membre', email: '', phone: '',
                             profileImageUrl: '', role: 'participant',
                             joinedAt: DateTime.now(), isPaid: true,
@@ -917,6 +944,23 @@ class ContratSmartScreen extends StatelessWidget {
       'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc',
     ];
     return months[month - 1];
+  }
+
+  String _formatFrequency(String? freq) {
+    if (freq == null || freq.isEmpty) return 'Mensuelle';
+    final lower = freq.toLowerCase();
+    if (lower.contains('heb') || lower.contains('week')) return 'Hebdomadaire';
+    if (lower.contains('jour') || lower.contains('day')) return 'Quotidienne';
+    if (lower.contains('trime')) return 'Trimestrielle';
+    return 'Mensuelle';
+  }
+
+  String _getInitials(String name) {
+    final parts = name.split(' ');
+    if (parts.length >= 2) {
+      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    }
+    return name.isNotEmpty ? name[0].toUpperCase() : '?';
   }
 }
 

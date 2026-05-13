@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:tontinechain/constants/app_colors.dart';
 import 'package:tontinechain/models/index.dart';
 import 'package:tontinechain/providers/tontine_provider.dart';
-import 'package:tontinechain/screens/contrat_smart_screen.dart';
+import 'package:tontinechain/screens/tontine_details_screen.dart';
 import 'package:tontinechain/services/auth_state.dart';
 
 String _formatAmount(int amount) {
@@ -115,25 +115,6 @@ class _ContractsListScreenState extends State<ContractsListScreen> {
                     _buildIntroCard(all.length, formation.length, active.length, completed.length),
                     const SizedBox(height: 18),
                     _buildSectionHeader(
-                      title: 'En formation',
-                      subtitle: 'Les groupes qui n’ont pas encore atteint le nombre de membres requis.',
-                      count: formation.length,
-                    ),
-                    const SizedBox(height: 12),
-                    if (formation.isEmpty)
-                      const _EmptySection(label: 'Aucune tontine en formation')
-                    else
-                      ...formation.map((t) => Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: _TontineCard(
-                              tontine: t,
-                              mode: _TontineCardMode.formation,
-                              onPrimaryAction: () => _openDetails(context, t),
-                              primaryLabel: 'Voir les détails',
-                            ),
-                          )),
-                    const SizedBox(height: 12),
-                    _buildSectionHeader(
                       title: 'Actives',
                       subtitle: 'Les tontines complètes et en cours de rotation.',
                       count: active.length,
@@ -147,6 +128,25 @@ class _ContractsListScreenState extends State<ContractsListScreen> {
                             child: _TontineCard(
                               tontine: t,
                               mode: _TontineCardMode.active,
+                              onPrimaryAction: () => _openDetails(context, t),
+                              primaryLabel: 'Voir les détails',
+                            ),
+                          )),
+                    const SizedBox(height: 12),
+                    _buildSectionHeader(
+                      title: 'Incomplètes',
+                      subtitle: 'Groupe incomplet – en attente de nouveaux membres.',
+                      count: formation.length,
+                    ),
+                    const SizedBox(height: 12),
+                    if (formation.isEmpty)
+                      const _EmptySection(label: 'Aucune tontine incomplète')
+                    else
+                      ...formation.map((t) => Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _TontineCard(
+                              tontine: t,
+                              mode: _TontineCardMode.formation,
                               onPrimaryAction: () => _openDetails(context, t),
                               primaryLabel: 'Voir les détails',
                             ),
@@ -194,7 +194,7 @@ class _ContractsListScreenState extends State<ContractsListScreen> {
   void _openDetails(BuildContext context, Tontine tontine) {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => ContratSmartScreen(tontine: tontine)),
+      MaterialPageRoute(builder: (_) => TontineDetailsScreen(tontine: tontine)),
     );
   }
 
@@ -249,9 +249,9 @@ class _ContractsListScreenState extends State<ContractsListScreen> {
             children: [
               Expanded(child: _SummaryPill(label: 'Total', value: total.toString())),
               const SizedBox(width: 8),
-              Expanded(child: _SummaryPill(label: 'Formation', value: formation.toString())),
-              const SizedBox(width: 8),
               Expanded(child: _SummaryPill(label: 'Actives', value: active.toString())),
+              const SizedBox(width: 8),
+              Expanded(child: _SummaryPill(label: 'Incomplèt.', value: formation.toString())),
               const SizedBox(width: 8),
               Expanded(child: _SummaryPill(label: 'Terminées', value: completed.toString())),
             ],
@@ -559,7 +559,7 @@ class _StatusBadge extends StatelessWidget {
             ? const Color(0xFF1F7A3D)
             : AppColors.textSecondary;
     final label = isFormation
-        ? 'En formation'
+        ? 'Incomplète'
         : isActive
             ? 'En cours'
             : 'Terminé';

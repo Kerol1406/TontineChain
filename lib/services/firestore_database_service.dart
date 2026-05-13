@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -14,6 +15,7 @@ import '../models/index.dart';
 /// - transactions: historique des mouvements (COTISATION, GAIN, CREATION_TONTINE, AJOUT_MEMBRE)
 /// - notifications: alertes et messages in-app
 /// - joinRequests: demandes d'adhésion à une tontine
+/// - invitations: invitations à rejoindre une tontine avec score de confiance
 ///
 /// Storage :
 /// - ids/{userId}.jpg: pièce d'identité
@@ -22,6 +24,7 @@ class FirestoreDatabaseService {
   FirestoreDatabaseService._();
 
   static final FirestoreDatabaseService instance = FirestoreDatabaseService._();
+  static const double _defaultGlobalScore = 40;
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseStorage _storage = FirebaseStorage.instance;
@@ -38,6 +41,8 @@ class FirestoreDatabaseService {
       _firestore.collection('notifications');
   CollectionReference<Map<String, dynamic>> get _joinRequests =>
       _firestore.collection('joinRequests');
+    CollectionReference<Map<String, dynamic>> get _invitations =>
+      _firestore.collection('invitations');
 
   // ============================================================================
   // USERS
@@ -83,6 +88,15 @@ class FirestoreDatabaseService {
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+
+    await _users.doc(uid).collection('globalScore').doc('current').set({
+      'wallet': uid,
+      'score': _defaultGlobalScore,
+      'lastReason': 'initial',
+      'totalTontineParticipations': 0,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   /// Récupère un profil utilisateur par UID.
@@ -91,7 +105,28 @@ class FirestoreDatabaseService {
     if (!doc.exists) {
       return null;
     }
-    return doc.data();
+
+    final data = doc.data() ?? <String, dynamic>{};
+    final score = await _getUserGlobalScore(uid);
+
+    return {
+      ...data,
+      'trustScore': score,
+      'globalScore': score,
+    };
+  }
+
+  /// Récupère le score global d'un utilisateur depuis Firestore.
+  /// Si le document n'existe pas encore, on renvoie le score par défaut du produit.
+  Future<double> _getUserGlobalScore(String uid) async {
+    final doc = await _users.doc(uid).collection('globalScore').doc('current').get();
+    if (!doc.exists) {
+      return _defaultGlobalScore;
+    }
+
+    final data = doc.data() ?? <String, dynamic>{};
+    final score = (data['score'] as num?)?.toDouble();
+    return score ?? _defaultGlobalScore;
   }
 
   /// Recherche un utilisateur par téléphone normalisé (E.164).
@@ -257,6 +292,31 @@ class FirestoreDatabaseService {
     final allMembers = [createur, ...membres];
     final placesRestantes = nombreMaxMembres - allMembers.length;
     final statutAuto = placesRestantes <= 0 ? 'EN_COURS' : 'EN_ATTENTE';
+    final initialOrder = ordre.isNotEmpty
+        ? List<String>.from(ordre)
+        : List<String>.from(allMembers);
+    if (placesRestantes <= 0) {
+      initialOrder.shuffle(Random());
+    }
+    final initialOrderIndex = {
+      for (int i = 0; i < initialOrder.length; i++) initialOrder[i]: i,
+    };
+    final startCycle = placesRestantes <= 0 && cycleActuel <= 0 ? 1 : cycleActuel;
+
+    // Charger le profil du créateur pour récupérer son nom
+    String creatorFullName = 'Utilisateur';
+    try {
+      final creatorProfile = await getUserProfile(createur);
+      if (creatorProfile != null) {
+        final firstName = (creatorProfile['firstName'] ?? '').toString().trim();
+        final lastName = (creatorProfile['lastName'] ?? '').toString().trim();
+        if (firstName.isNotEmpty || lastName.isNotEmpty) {
+          creatorFullName = '$firstName $lastName'.trim();
+        }
+      }
+    } catch (e) {
+      print('[ERROR] createTontine: Failed to load creator profile: $e');
+    }
 
     final doc = await _tontines.add({
       'nom': name,
@@ -266,12 +326,14 @@ class FirestoreDatabaseService {
       'nombreMaxMembres': nombreMaxMembres,
       'createur': createur,
       'creatorId': createur,
+      'creatorName': creatorFullName,
       'uid': createur,
       'userId': createur,
       'membres': allMembers, // le créateur est membre
-      'ordre': ordre.isNotEmpty ? ordre : [createur],
-      'ordreIndex': {createur: 0}, // index de chaque userId dans l'ordre
-      'cycleActuel': cycleActuel,
+      'ordre': initialOrder,
+      'ordreIndex': initialOrderIndex,
+      'calendrierAllocations': _buildAllocationCalendar(initialOrder, frequency),
+      'cycleActuel': startCycle,
       'statut': statut ?? statutAuto, // EN_ATTENTE, EN_COURS, TERMINE, SUSPENDUE, ARCHIVEE
       'isPublic': isPublic,
       'placesRestantes': placesRestantes,
@@ -333,6 +395,7 @@ class FirestoreDatabaseService {
       tontines.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       
       print('[DEBUG] getUserTontinesAsModels: Found ${tontines.length} tontines for userId=$userId');
+
       return tontines;
     } catch (e) {
       print('[ERROR] getUserTontinesAsModels failed: $e');
@@ -393,6 +456,136 @@ class FirestoreDatabaseService {
     return _tontineFromData(doc.id, data);
   }
 
+  /// Récupère le calendrier d'allocations d'une tontine avec noms d'affichage.
+  /// Retour: [{rang, userId, displayName, dateAllocation}]
+  /// Récupère les membres d'une tontine avec leur statut de paiement.
+  /// Retour: [{userId, displayName, photoUrl, role, isPaid, phone}]
+  Future<List<Map<String, dynamic>>> getTontineMembersWithPayments(String tontineId) async {
+    final tontine = await getTontine(tontineId);
+    if (tontine == null) return const [];
+
+    final memberIds = List<String>.from(tontine['membres'] ?? <String>[]);
+    final creatorId = (tontine['creatorId'] ?? '').toString();
+    // Utiliser 1 comme cycle par défaut pour rester cohérent avec la
+    // simulation de paiement qui enregistre les contributions sur le cycle 1
+    // lorsque la tontine n'a pas encore démarré (cycleActuel absent/0).
+    final currentCycle = (tontine['cycleActuel'] as num?)?.toInt() ?? 1;
+    final paidMemberIds = <String>{};
+
+    if (currentCycle >= 1) {
+      final contributionsQuery = await _contributions
+          .where('tontineId', isEqualTo: tontineId)
+          .where('cycle', isEqualTo: currentCycle)
+          .where('deleted', isEqualTo: false)
+          .get();
+
+      for (final doc in contributionsQuery.docs) {
+        final data = doc.data();
+        final statut = (data['statut'] ?? '').toString().toUpperCase();
+        if (statut == 'PAYE') {
+          final paidUserId = (data['userId'] ?? '').toString();
+          if (paidUserId.isNotEmpty) {
+            paidMemberIds.add(paidUserId);
+          }
+        }
+      }
+    }
+
+    final result = <Map<String, dynamic>>[];
+
+    for (final memberId in memberIds) {
+      final profile = await getUserProfile(memberId);
+      if (profile == null) continue;
+
+      final firstName = (profile['firstName'] ?? '').toString().trim();
+      final lastName = (profile['lastName'] ?? '').toString().trim();
+      final fullName = '$firstName $lastName'.trim().isNotEmpty
+          ? '$firstName $lastName'.trim()
+          : (profile['name'] ?? 'Membre').toString();
+      final phone = (profile['phone'] ?? '').toString();
+      final photoUrl = (profile['photoUrl'] ?? '').toString();
+
+      final isCreator = memberId == creatorId;
+      final role = isCreator ? 'Créateur' : 'Bénéficiaire';
+
+      // Un membre est considéré comme "payé" uniquement s'il existe une
+      // contribution marquée PAYE pour le cycle courant. Ne pas inférer
+      // le statut à partir de l'ordre d'allocation (cela provoquait que
+      // des membres nouvellement ajoutés apparaissent comme déjà payés).
+      final bool isPaid = paidMemberIds.contains(memberId);
+
+      result.add({
+        'userId': memberId,
+        'displayName': fullName,
+        'photoUrl': photoUrl,
+        'role': role,
+        'isPaid': isPaid,
+        'phone': phone,
+      });
+    }
+
+    return result;
+  }
+
+  Future<List<Map<String, dynamic>>> getAllocationCalendar(String tontineId) async {
+    final tontine = await getTontine(tontineId);
+    if (tontine == null) return const [];
+
+    final rawCalendar = (tontine['calendrierAllocations'] as List?)
+            ?.whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList() ??
+        <Map<String, dynamic>>[];
+
+    final frequency = (tontine['frequence'] ?? '').toString();
+    final baseDate = _parseDateTime(tontine['createdAt']) ?? DateTime.now();
+
+    List<Map<String, dynamic>> normalized = rawCalendar;
+    if (normalized.isEmpty) {
+      final order = List<String>.from(tontine['ordre'] ?? const []);
+      normalized = List.generate(order.length, (index) {
+        return {
+          'rang': index + 1,
+          'userId': order[index],
+          'dateAllocation': Timestamp.fromDate(_computeAllocationDate(baseDate, frequency, index)),
+        };
+      });
+    }
+
+    final uniqueUserIds = normalized
+        .map((slot) => (slot['userId'] ?? '').toString())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+
+    final Map<String, String> namesByUid = {};
+    for (final uid in uniqueUserIds) {
+      final profile = await getUserProfile(uid);
+      final firstName = (profile?['firstName'] ?? '').toString().trim();
+      final lastName = (profile?['lastName'] ?? '').toString().trim();
+      final fullName = '$firstName $lastName'.trim();
+      namesByUid[uid] = fullName.isNotEmpty ? fullName : 'Membre ${uid.substring(0, uid.length >= 6 ? 6 : uid.length)}';
+    }
+
+    normalized.sort((a, b) {
+      final rangA = (a['rang'] as num?)?.toInt();
+      final rangB = (b['rang'] as num?)?.toInt();
+      if (rangA != null && rangB != null) return rangA.compareTo(rangB);
+
+      final dateA = _parseDateTime(a['dateAllocation']) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final dateB = _parseDateTime(b['dateAllocation']) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return dateA.compareTo(dateB);
+    });
+
+    return normalized.map((slot) {
+      final userId = (slot['userId'] ?? '').toString();
+      return {
+        ...slot,
+        'displayName': userId.isEmpty ? 'Membre' : (namesByUid[userId] ?? userId),
+      };
+    }).toList(growable: false);
+  }
+
   /// Récupère toutes les tontines actives (deleted=false).
   Future<List<Map<String, dynamic>>> getAllActiveTontines() async {
     final query = await _tontines
@@ -451,13 +644,28 @@ class FirestoreDatabaseService {
       final maxMembers = (tontine['nombreMaxMembres'] as num?)?.toInt() ?? 0;
       final placesRestantes = maxMembers - currentMembers.length;
       final statutAuto = placesRestantes <= 0 ? 'EN_COURS' : 'EN_ATTENTE';
+      final currentCycle = (tontine['cycleActuel'] as num?)?.toInt() ?? 0;
+
+      List<String> nextOrder = ordreList;
+      Map<String, int> nextOrderIndex = ordreIndex;
+      if (placesRestantes <= 0) {
+        nextOrder = List<String>.from(currentMembers)..shuffle(Random());
+        nextOrderIndex = {
+          for (int i = 0; i < nextOrder.length; i++) nextOrder[i]: i,
+        };
+      }
 
       await _tontines.doc(tontineId).update({
         'membres': currentMembers,
-        'ordre': ordreList,
-        'ordreIndex': ordreIndex,
+        'ordre': nextOrder,
+        'ordreIndex': nextOrderIndex,
+        'calendrierAllocations': _buildAllocationCalendar(
+          nextOrder,
+          (tontine['frequence'] ?? '').toString(),
+        ),
         'placesRestantes': placesRestantes,
         'statut': statutAuto,
+        'cycleActuel': placesRestantes <= 0 && currentCycle <= 0 ? 1 : currentCycle,
         'updatedAt': FieldValue.serverTimestamp(),
       });
     }
@@ -489,9 +697,38 @@ class FirestoreDatabaseService {
       'membres': currentMembers,
       'ordre': ordreList,
       'ordreIndex': ordreIndex,
+      'calendrierAllocations': _buildAllocationCalendar(
+        ordreList,
+        (tontine['frequence'] ?? '').toString(),
+      ),
       'placesRestantes': placesRestantes,
       'statut': statutAuto,
       'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  List<Map<String, dynamic>> _buildAllocationCalendar(
+    List<String> order,
+    String frequency,
+  ) {
+    final now = DateTime.now();
+    final freq = frequency.toLowerCase();
+    Duration step = const Duration(days: 30);
+    if (freq.contains('heb')) {
+      step = const Duration(days: 7);
+    } else if (freq.contains('jour')) {
+      step = const Duration(days: 1);
+    } else if (freq.contains('trime')) {
+      step = const Duration(days: 90);
+    }
+
+    return List.generate(order.length, (index) {
+      final dueDate = now.add(Duration(days: step.inDays * index));
+      return {
+        'rang': index + 1,
+        'userId': order[index],
+        'dateAllocation': Timestamp.fromDate(dueDate),
+      };
     });
   }
 
@@ -542,6 +779,131 @@ class FirestoreDatabaseService {
     return doc.id;
   }
 
+  /// Simule un paiement de cotisation et met à jour les statuts liés.
+  Future<void> simulateCotisationPayment({
+    required String tontineId,
+    required String userId,
+    required double amount,
+    required String phoneNumber,
+    required String paymentMode,
+    String? provider,
+  }) async {
+    final tontine = await getTontine(tontineId);
+    if (tontine == null) {
+      throw Exception('Tontine introuvable');
+    }
+
+    final cycle = (tontine['cycleActuel'] as num?)?.toInt() ?? 1;
+
+    final existingContribution = await _contributions
+        .where('tontineId', isEqualTo: tontineId)
+        .where('userId', isEqualTo: userId)
+        .where('cycle', isEqualTo: cycle)
+        .where('deleted', isEqualTo: false)
+        .limit(1)
+        .get();
+
+    if (existingContribution.docs.isNotEmpty) {
+      await existingContribution.docs.first.reference.update({
+        'montant': amount,
+        'statut': 'PAYE',
+        'paymentMode': paymentMode,
+        'provider': provider,
+        'phoneNumber': phoneNumber,
+        'datePaiement': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } else {
+      await _contributions.add({
+        'tontineId': tontineId,
+        'userId': userId,
+        'montant': amount,
+        'cycle': cycle,
+        'statut': 'PAYE',
+        'paymentMode': paymentMode,
+        'provider': provider,
+        'phoneNumber': phoneNumber,
+        'datePaiement': FieldValue.serverTimestamp(),
+        'deleted': false,
+        'date': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    await addTransaction(
+      type: 'COTISATION',
+      tontineId: tontineId,
+      userId: userId,
+      fromUserId: userId,
+      amount: amount,
+      description: 'Simulation cotisation $paymentMode ($phoneNumber)',
+    );
+  }
+
+  /// Simule un rechargement de portefeuille.
+  Future<void> simulateWalletRecharge({
+    required String userId,
+    required double amount,
+    required String phoneNumber,
+    required String paymentMode,
+  }) async {
+    // Mettre à jour le solde de l'utilisateur
+    final userDoc = await _users.doc(userId).get();
+    if (!userDoc.exists) {
+      throw Exception('Utilisateur introuvable');
+    }
+
+    final currentSolde = (userDoc['solde'] as num?)?.toDouble() ?? 0;
+    final newSolde = currentSolde + amount;
+
+    await _users.doc(userId).update({
+      'solde': newSolde,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    // Enregistrer une transaction de recharge
+    await addTransaction(
+      type: 'RECHARGE_PORTEFEUILLE',
+      userId: userId,
+      fromUserId: userId,
+      amount: amount,
+      description: 'Recharge portefeuille $paymentMode ($phoneNumber)',
+    );
+  }
+
+  /// Simule un retrait depuis le portefeuille.
+  Future<void> simulateWalletWithdrawal({
+    required String userId,
+    required double amount,
+    required String phoneNumber,
+    required String paymentMode,
+  }) async {
+    final userDoc = await _users.doc(userId).get();
+    if (!userDoc.exists) {
+      throw Exception('Utilisateur introuvable');
+    }
+
+    final currentSolde = (userDoc.data()?['solde'] as num?)?.toDouble() ?? 0;
+    if (amount > currentSolde) {
+      throw Exception('Solde insuffisant');
+    }
+
+    final newSolde = currentSolde - amount;
+
+    await _users.doc(userId).update({
+      'solde': newSolde,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    await addTransaction(
+      type: 'RETRAIT_PORTEFEUILLE',
+      userId: userId,
+      fromUserId: userId,
+      amount: amount,
+      description: 'Retrait portefeuille $paymentMode ($phoneNumber)',
+    );
+  }
+
   /// Récupère les contributions d'une tontine.
   Future<List<Map<String, dynamic>>> getTontineContributions(String tontineId) async {
     final query = await _contributions
@@ -581,8 +943,8 @@ class FirestoreDatabaseService {
   /// Enregistre une transaction métier.
   /// type: COTISATION, GAIN, CREATION_TONTINE, AJOUT_MEMBRE
   Future<String> addTransaction({
-    required String type, // COTISATION, GAIN, CREATION_TONTINE, AJOUT_MEMBRE
-    required String tontineId,
+    required String type, // COTISATION, GAIN, CREATION_TONTINE, AJOUT_MEMBRE, RECHARGE_PORTEFEUILLE
+    String? tontineId,
     required String userId, // l'utilisateur principal de la transaction
     String? fromUserId, // sender
     String? toUserId, // receiver
@@ -645,7 +1007,17 @@ class FirestoreDatabaseService {
     Map<String, dynamic>? best;
 
     for (final tontine in userTontines) {
+      // Ignore les tontines terminées ou suspendues
+      if (tontine.status == 'TERMINE' || tontine.status == 'SUSPENDUE' || tontine.status == 'ARCHIVEA') {
+        continue;
+      }
+
       final contributions = await getUserContributions(tontine.id, userId);
+      
+      // Chercher une contribution NON_PAYEE
+      DateTime? candidateDueDate;
+      double? candidateAmount;
+      
       for (final contribution in contributions) {
         final status = (contribution['statut'] ?? '').toString().toUpperCase();
         if (status == 'PAYE') continue;
@@ -654,19 +1026,62 @@ class FirestoreDatabaseService {
             _parseDateTime(contribution['date']);
         if (dueDate == null) continue;
 
-        final amount = (contribution['montant'] as num?)?.toDouble() ?? tontine.monthlyAmount;
+        if (candidateDueDate == null || dueDate.isBefore(candidateDueDate)) {
+          candidateDueDate = dueDate;
+          candidateAmount = (contribution['montant'] as num?)?.toDouble() ?? tontine.monthlyAmount;
+        }
+      }
+
+      // Si aucune contribution NON_PAYEE n'existe, créer une hypothétique pour les tontines EN_COURS
+      if (candidateDueDate == null && (tontine.status == 'EN_COURS' || tontine.status == 'active')) {
+        // Chercher la position de l'utilisateur dans le calendrier d'allocation
+        final tontineDoc = await _tontines.doc(tontine.id).get();
+        if (tontineDoc.exists) {
+          final rawCalendar = (tontineDoc['calendrierAllocations'] as List?)
+              ?.cast<Map<String, dynamic>>() ??
+              [];
+          
+          for (final slot in rawCalendar) {
+            if ((slot['userId'] ?? '').toString() == userId) {
+              final allocationDateValue = slot['dateAllocation'];
+              candidateDueDate = _parseDateTime(allocationDateValue);
+              break;
+            }
+          }
+        }
+        
+        // Si on n'a pas trouvé la date d'allocation, générer une hypothétique
+        if (candidateDueDate == null) {
+          final now = DateTime.now();
+          final freq = (tontine.frequency ?? 'Mensuel').toLowerCase();
+          int daysOffset = 30;
+          if (freq.contains('heb')) {
+            daysOffset = 7;
+          } else if (freq.contains('jour')) {
+            daysOffset = 1;
+          } else if (freq.contains('trime')) {
+            daysOffset = 90;
+          }
+          candidateDueDate = now.add(Duration(days: daysOffset));
+        }
+        
+        candidateAmount = tontine.monthlyAmount;
+      }
+
+      // Si une date d'échéance candidate a été trouvée, comparer avec le meilleur
+      if (candidateDueDate != null) {
         final candidate = {
           'tontine': tontine,
-          'dueDate': dueDate,
-          'amount': amount,
-          'cycle': contribution['cycle'],
+          'dueDate': candidateDueDate,
+          'amount': candidateAmount ?? tontine.monthlyAmount,
+          'cycle': tontine.currentCycle,
         };
 
         if (best == null) {
           best = candidate;
         } else {
           final currentBest = best['dueDate'] as DateTime;
-          if (dueDate.isBefore(currentBest)) {
+          if (candidateDueDate.isBefore(currentBest)) {
             best = candidate;
           }
         }
@@ -682,6 +1097,19 @@ class FirestoreDatabaseService {
     if (value is DateTime) return value;
     if (value is String) return DateTime.tryParse(value);
     return null;
+  }
+
+  DateTime _computeAllocationDate(DateTime start, String frequency, int stepIndex) {
+    final freq = frequency.toLowerCase();
+    int days = 30;
+    if (freq.contains('heb')) {
+      days = 7;
+    } else if (freq.contains('jour')) {
+      days = 1;
+    } else if (freq.contains('trime')) {
+      days = 90;
+    }
+    return start.add(Duration(days: days * stepIndex));
   }
 
   // ============================================================================
@@ -765,6 +1193,8 @@ class FirestoreDatabaseService {
   Future<String> addJoinRequest({
     required String tontineId,
     required String userId,
+    String userName = '',
+    String userPhone = '',
     String statut = 'PENDING',
   }) async {
     // Vérifier si la demande existe déjà
@@ -782,6 +1212,8 @@ class FirestoreDatabaseService {
     final doc = await _joinRequests.add({
       'tontineId': tontineId,
       'userId': userId,
+      'userName': userName,
+      'userPhone': userPhone,
       'statut': statut,
       'deleted': false,
       'date': FieldValue.serverTimestamp(),
@@ -833,6 +1265,293 @@ class FirestoreDatabaseService {
       'statut': newStatus,
       'updatedAt': FieldValue.serverTimestamp(),
     });
+  }
+
+  /// Observe les demandes d'adhésion d'une tontine en temps réel (filtre par tontineId et tri par date).
+  Stream<List<Map<String, dynamic>>> watchTontineJoinRequests(String tontineId) {
+    return _joinRequests
+        .where('tontineId', isEqualTo: tontineId)
+        .orderBy('date', descending: true)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map((doc) => {
+                    'id': doc.id,
+                    ...doc.data(),
+                  })
+              .toList(),
+        );
+  }
+
+  /// Accepte une demande d'adhésion et ajoute automatiquement le membre à la tontine.
+  Future<void> acceptJoinRequest({
+    required String requestId,
+    required String handledBy,
+  }) async {
+    final ref = _joinRequests.doc(requestId);
+    final snapshot = await ref.get();
+    if (!snapshot.exists) return;
+
+    final data = snapshot.data() ?? const <String, dynamic>{};
+    final tontineId = (data['tontineId'] ?? '').toString();
+    final userId = (data['userId'] ?? '').toString();
+
+    await ref.update({
+      'statut': 'ACCEPTED',
+      'handledBy': handledBy,
+      'handledAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    if (tontineId.isNotEmpty && userId.isNotEmpty) {
+      await addMemberToTontine(tontineId, userId);
+      await addTontineToUser(userId, tontineId);
+      await addNotification(
+        userId: userId,
+        title: 'Demande acceptée',
+        message: 'Votre demande pour rejoindre la tontine a été acceptée.',
+        type: 'JOIN_REQUEST',
+        tontineId: tontineId,
+      );
+      await addNotification(
+        userId: handledBy,
+        title: 'Membre ajouté',
+        message: 'Un membre a été ajouté à votre tontine.',
+        type: 'JOIN_REQUEST',
+        tontineId: tontineId,
+      );
+    }
+  }
+
+  /// Refuse une demande d'adhésion.
+  Future<void> rejectJoinRequest({
+    required String requestId,
+    required String handledBy,
+  }) async {
+    final ref = _joinRequests.doc(requestId);
+    final snapshot = await ref.get();
+    if (!snapshot.exists) return;
+
+    final data = snapshot.data() ?? const <String, dynamic>{};
+    final tontineId = (data['tontineId'] ?? '').toString();
+    final userId = (data['userId'] ?? '').toString();
+
+    await ref.update({
+      'statut': 'REJECTED',
+      'handledBy': handledBy,
+      'handledAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    if (tontineId.isNotEmpty && userId.isNotEmpty) {
+      await addNotification(
+        userId: userId,
+        title: 'Demande refusée',
+        message: 'Votre demande pour rejoindre la tontine a été refusée.',
+        type: 'JOIN_REQUEST',
+        tontineId: tontineId,
+      );
+      await addNotification(
+        userId: handledBy,
+        title: 'Demande refusée',
+        message: 'La demande d\'adhésion a été refusée.',
+        type: 'JOIN_REQUEST',
+        tontineId: tontineId,
+      );
+    }
+  }
+
+  // ============================================================================
+  // INVITATIONS
+  // ============================================================================
+
+  /// Crée une invitation réelle à rejoindre une tontine.
+  /// statut: PENDING, ACCEPTED, REJECTED
+  Future<String> createInvitation({
+    required String tontineId,
+    required String tontineName,
+    required String inviterId,
+    required String inviteeId,
+    required String inviteeName,
+    String? inviteePhone,
+    String? inviterName,
+    double? trustScore,
+    String message = '',
+    String statut = 'PENDING',
+  }) async {
+    final existing = await _invitations
+        .where('tontineId', isEqualTo: tontineId)
+        .where('inviteeId', isEqualTo: inviteeId)
+        .where('statut', isEqualTo: 'PENDING')
+        .limit(1)
+        .get();
+
+    if (existing.docs.isNotEmpty) {
+      return existing.docs.first.id;
+    }
+
+    final doc = await _invitations.add({
+      'tontineId': tontineId,
+      'tontineName': tontineName,
+      'inviterId': inviterId,
+      'inviterName': inviterName ?? '',
+      'inviteeId': inviteeId,
+      'inviteeName': inviteeName,
+      'inviteePhone': inviteePhone,
+      'trustScore': trustScore ?? 0,
+      'message': message,
+      'statut': statut,
+      'deleted': false,
+      'date': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    await addNotification(
+      userId: inviteeId,
+      title: 'Nouvelle invitation',
+      message: inviterName == null || inviterName.isEmpty
+          ? 'Vous avez reçu une invitation pour rejoindre "$tontineName".'
+          : '$inviterName vous a invité à rejoindre "$tontineName".',
+      type: 'INVITATION',
+      tontineId: tontineId,
+    );
+
+    return doc.id;
+  }
+
+  /// Récupère les invitations d'une tontine.
+  Future<List<Map<String, dynamic>>> getTontineInvitations(
+    String tontineId, {
+    String? statut,
+  }) async {
+    Query<Map<String, dynamic>> query = _invitations
+        .where('tontineId', isEqualTo: tontineId)
+        .where('deleted', isEqualTo: false);
+
+    if (statut != null && statut.isNotEmpty) {
+      query = query.where('statut', isEqualTo: statut);
+    }
+
+    final snapshot = await query.orderBy('date', descending: true).get();
+    return snapshot.docs
+        .map((doc) => {
+              'id': doc.id,
+              ...doc.data(),
+            })
+        .toList();
+  }
+
+  /// Observe les invitations d'une tontine en temps réel (filtre par tontineId et tri par date).
+  Stream<List<Map<String, dynamic>>> watchTontineInvitations(String tontineId) {
+    return _invitations
+        .where('tontineId', isEqualTo: tontineId)
+        .orderBy('date', descending: true)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map((doc) => {
+                    'id': doc.id,
+                    ...doc.data(),
+                  })
+              .toList(),
+        );
+  }
+
+  /// Récupère les invitations reçues par un utilisateur.
+  Future<List<Map<String, dynamic>>> getUserInvitations(String userId) async {
+    final snapshot = await _invitations
+        .where('inviteeId', isEqualTo: userId)
+        .orderBy('date', descending: true)
+        .get();
+
+    return snapshot.docs
+        .map((doc) => {
+              'id': doc.id,
+              ...doc.data(),
+            })
+        .toList();
+  }
+
+  /// Accepte une invitation et ajoute automatiquement le membre à la tontine.
+  Future<void> acceptInvitation({
+    required String invitationId,
+    required String handledBy,
+  }) async {
+    final ref = _invitations.doc(invitationId);
+    final snapshot = await ref.get();
+    if (!snapshot.exists) return;
+
+    final data = snapshot.data() ?? const <String, dynamic>{};
+    final tontineId = (data['tontineId'] ?? '').toString();
+    final inviteeId = (data['inviteeId'] ?? '').toString();
+    final inviteeName = (data['inviteeName'] ?? '').toString();
+    final tontineName = (data['tontineName'] ?? '').toString();
+
+    await ref.update({
+      'statut': 'ACCEPTED',
+      'handledBy': handledBy,
+      'handledAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    if (tontineId.isNotEmpty && inviteeId.isNotEmpty) {
+      await addMemberToTontine(tontineId, inviteeId);
+      await addTontineToUser(inviteeId, tontineId);
+      await addNotification(
+        userId: inviteeId,
+        title: 'Invitation acceptée',
+        message: 'Votre invitation pour "$tontineName" a été acceptée.',
+        type: 'INVITATION',
+        tontineId: tontineId,
+      );
+      await addNotification(
+        userId: handledBy,
+        title: 'Membre ajouté',
+        message: '$inviteeName a été ajouté à "$tontineName".',
+        type: 'INVITATION',
+        tontineId: tontineId,
+      );
+    }
+  }
+
+  /// Refuse une invitation.
+  Future<void> rejectInvitation({
+    required String invitationId,
+    required String handledBy,
+  }) async {
+    final ref = _invitations.doc(invitationId);
+    final snapshot = await ref.get();
+    if (!snapshot.exists) return;
+
+    final data = snapshot.data() ?? const <String, dynamic>{};
+    final tontineId = (data['tontineId'] ?? '').toString();
+    final inviteeId = (data['inviteeId'] ?? '').toString();
+    final inviteeName = (data['inviteeName'] ?? '').toString();
+    final tontineName = (data['tontineName'] ?? '').toString();
+
+    await ref.update({
+      'statut': 'REJECTED',
+      'handledBy': handledBy,
+      'handledAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    if (tontineId.isNotEmpty && inviteeId.isNotEmpty) {
+      await addNotification(
+        userId: inviteeId,
+        title: 'Invitation refusée',
+        message: 'Votre invitation pour "$tontineName" a été refusée.',
+        type: 'INVITATION',
+        tontineId: tontineId,
+      );
+      await addNotification(
+        userId: handledBy,
+        title: 'Invitation refusée',
+        message: '$inviteeName n’a pas été retenu pour "$tontineName".',
+        type: 'INVITATION',
+        tontineId: tontineId,
+      );
+    }
   }
 
   // ============================================================================

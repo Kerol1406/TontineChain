@@ -3,11 +3,61 @@ import 'package:provider/provider.dart';
 import 'package:tontinechain/constants/app_colors.dart';
 import 'package:tontinechain/models/index.dart';
 import 'package:tontinechain/screens/cotisation_payment_screen.dart';
+import 'package:tontinechain/screens/notifications_screen.dart';
 import 'package:tontinechain/screens/reception_cagnotte_screen.dart';
 import 'package:tontinechain/screens/contrat_smart_screen.dart';
+import 'package:tontinechain/services/backend_service.dart';
 import 'package:tontinechain/services/auth_state.dart';
-import 'package:tontinechain/services/tontine_service.dart';
+import 'package:tontinechain/services/firestore_database_service.dart';
 import 'package:tontinechain/widgets/invite_share_dialog.dart';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HELPER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+String _formatAllocationDate(dynamic dateAllocation) {
+  try {
+    DateTime dateTime;
+    if (dateAllocation is String) {
+      dateTime = DateTime.parse(dateAllocation);
+    } else if (dateAllocation is int) {
+      dateTime = DateTime.fromMillisecondsSinceEpoch(dateAllocation);
+    } else {
+      // Try to convert to string and parse (handles Firestore Timestamp)
+      String dateStr = dateAllocation.toString();
+      if (dateStr.contains('Timestamp')) {
+        // Handle Firestore Timestamp toString format
+        // Format is like: Timestamp(seconds=1704067200, nanoseconds=0)
+        final secondsMatch = RegExp(r'seconds=(\d+)').firstMatch(dateStr);
+        if (secondsMatch != null) {
+          final seconds = int.parse(secondsMatch.group(1)!);
+          dateTime = DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
+        } else {
+          return 'Date';
+        }
+      } else {
+        dateTime = DateTime.parse(dateStr);
+      }
+    }
+    
+    final months = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin',
+                    'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+    final month = months[dateTime.month - 1].toUpperCase();
+    return '$month ${dateTime.year}';
+  } catch (e) {
+    return 'Date';
+  }
+}
+
+bool _isTontineLaunchedForUi(Tontine tontine) {
+  final status = tontine.status.trim().toLowerCase();
+  final maxMembers = tontine.maxMembers ?? tontine.memberCount;
+  return status == 'active' ||
+      status == 'en_cours' ||
+      status == 'en cours' ||
+      status == 'started' ||
+      (maxMembers > 0 && tontine.memberCount >= maxMembers) ||
+      tontine.currentCycle > 0;
+}
 
 class TontineDetailsScreen extends StatefulWidget {
   final Tontine tontine;
@@ -19,16 +69,60 @@ class TontineDetailsScreen extends StatefulWidget {
 }
 
 class _TontineDetailsScreenState extends State<TontineDetailsScreen> {
-  late final MockTontineService _service;
-  late Future<List<Member>> _membersFuture;
-  late final Future<List<Payment>> _paymentsFuture;
+  final FirestoreDatabaseService _db = FirestoreDatabaseService.instance;
+  late Future<List<Map<String, dynamic>>> _membersFuture;
+  late Future<List<Map<String, dynamic>>> _allocationFuture;
+  bool _showJoinRequests = false;
+
+  bool _isTontineLaunched(Tontine tontine) {
+    final status = tontine.status.trim().toLowerCase();
+    final maxMembers = tontine.maxMembers ?? tontine.memberCount;
+    return status == 'active' ||
+        status == 'en_cours' ||
+        status == 'en cours' ||
+        status == 'started' ||
+        (maxMembers > 0 && tontine.memberCount >= maxMembers) ||
+        tontine.currentCycle > 0;
+  }
 
   @override
   void initState() {
     super.initState();
-    _service = MockTontineService();
-    _membersFuture = _service.getMembers(widget.tontine.id);
-    _paymentsFuture = _service.getPayments(widget.tontine.id);
+    _membersFuture = _loadMembers();
+    _allocationFuture = _db.getAllocationCalendar(widget.tontine.id);
+  }
+
+  Future<List<Map<String, dynamic>>> _loadMembers() async {
+    try {
+      final members = await _db.getTontineMembersWithPayments(widget.tontine.id);
+      final enrichedMembers = <Map<String, dynamic>>[];
+
+      for (final member in members) {
+        final memberWallet = (member['userId'] ?? '').toString();
+        var score = 40;
+
+        if (memberWallet.isNotEmpty) {
+          try {
+            final response = await BackendService.instance.getUserGlobalScore(memberWallet);
+            final globalScore = response['globalScore'];
+            if (globalScore is Map) {
+              score = (globalScore['score'] as num?)?.toInt() ?? 40;
+            }
+          } catch (_) {
+            score = 40;
+          }
+        }
+
+        enrichedMembers.add({
+          ...member,
+          'score': score,
+        });
+      }
+
+      return enrichedMembers;
+    } catch (_) {
+      return const [];
+    }
   }
 
   @override
@@ -36,7 +130,6 @@ class _TontineDetailsScreenState extends State<TontineDetailsScreen> {
     final user = context.watch<AuthState>().currentUser;
     final String userName = (user?['name'] ?? 'Utilisateur').toString();
     final String userPhone = (user?['phone'] ?? '').toString();
-    final String userInitials = _getInitials(userName);
 
     final tontine = widget.tontine;
     final int maxMembers = tontine.maxMembers ?? tontine.memberCount;
@@ -47,142 +140,123 @@ class _TontineDetailsScreenState extends State<TontineDetailsScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: SafeArea(
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: CustomPaint(painter: _DotsBackgroundPainter()),
-            ),
-            SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildTopBar(userInitials),
-                  const SizedBox(height: 18),
-                  _buildHeroCard(
-                    tontine: tontine,
-                    creatorName: creatorName,
-                    totalAmount: totalAmount,
-                    occupancy: occupancy,
-                  ),
-                  const SizedBox(height: 20),
-                  _buildActionButtons(currentUserPhone: userPhone),
-                  const SizedBox(height: 20),
-                  _buildInviteCard(context, tontine),
-                  const SizedBox(height: 26),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          'Calendrier des Allocations',
-                          style: TextStyle(
-                            fontFamily: 'Manrope',
-                            fontSize: 20,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.textPrimary,
-                            letterSpacing: -0.4,
-                          ),
-                        ),
-                      ),
-                      Text(
-                        'Cycle de $cycleMonths mois',
-                        textAlign: TextAlign.right,
-                        style: const TextStyle(
-                          fontFamily: 'Plus Jakarta Sans',
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  _AllocationTimelineCard(
-                    tontine: tontine,
-                    currentUserName: userName,
-                    membersFuture: _membersFuture,
-                  ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    'Membres Actifs',
-                    style: TextStyle(
-                      fontFamily: 'Manrope',
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.textPrimary,
-                      letterSpacing: -0.4,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  _MembersPanel(
-                    tontine: tontine,
-                    membersFuture: _membersFuture,
-                    paymentsFuture: _paymentsFuture,
-                    currentUserName: userName,
-                  ),
-                ],
-              ),
-            ),
-          ],
+      appBar: AppBar(
+        backgroundColor: AppColors.background,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        centerTitle: true,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded, color: Colors.black87, size: 22),
+          onPressed: () => Navigator.of(context).pop(),
         ),
+        title: const Text(
+          'Détails de la Tontine',
+          style: TextStyle(
+            fontFamily: 'Manrope',
+            fontWeight: FontWeight.w800,
+            fontSize: 19,
+            color: Colors.black,
+          ),
+        ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: IconButton(
+              icon: const Icon(Icons.notifications_none_rounded, color: Colors.black87, size: 24),
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const NotificationsScreen()),
+                );
+              },
+            ),
+          ),
+        ],
       ),
-    );
-  }
-
-  Widget _buildTopBar(String initials) {
-    return Row(
-      children: [
-        Container(
-          width: 34,
-          height: 34,
-          decoration: BoxDecoration(
-            color: const Color(0xFFF0ECE4),
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.03),
-                blurRadius: 6,
-                offset: const Offset(0, 2),
-              ),
-            ],
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: CustomPaint(painter: _DotsBackgroundPainter()),
           ),
-          child: Center(
-            child: Text(
-              initials,
-              style: const TextStyle(
-                fontFamily: 'Manrope',
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-                color: AppColors.primary,
-              ),
+          SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildHeroCard(
+                  tontine: tontine,
+                  creatorName: creatorName,
+                  totalAmount: totalAmount,
+                  occupancy: occupancy,
+                ),
+                const SizedBox(height: 20),
+                _buildActionButtons(currentUserPhone: userPhone),
+                const SizedBox(height: 20),
+                if (!_isTontineLaunched(tontine))
+                  _buildInviteCard(context, tontine)
+                else
+                  _buildTransactionButton(context),
+                const SizedBox(height: 16),
+                _buildJoinRequestsPanel(
+                  context,
+                  tontine,
+                  canManage: (user?['uid'] ?? '').toString() == tontine.creatorId,
+                ),
+                const SizedBox(height: 26),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Calendrier des Allocations',
+                        style: TextStyle(
+                          fontFamily: 'Manrope',
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.textPrimary,
+                          letterSpacing: -0.4,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      'Cycle de $cycleMonths mois',
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                        fontFamily: 'Plus Jakarta Sans',
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                _AllocationTimelineCard(
+                  tontine: tontine,
+                  currentUserName: userName,
+                  allocationFuture: _allocationFuture,
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'Membres Actifs',
+                  style: TextStyle(
+                    fontFamily: 'Manrope',
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textPrimary,
+                    letterSpacing: -0.4,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                _MembersPanel(
+                  tontine: tontine,
+                  membersFuture: _membersFuture,
+                  currentUserName: userName,
+                ),
+              ],
             ),
           ),
-        ),
-        const SizedBox(width: 10),
-        const Expanded(
-          child: Text(
-            'TontineChain',
-            style: TextStyle(
-              fontFamily: 'Manrope',
-              fontSize: 20,
-              fontWeight: FontWeight.w800,
-              color: AppColors.textPrimary,
-              letterSpacing: -0.4,
-            ),
-          ),
-        ),
-        Container(
-          width: 34,
-          height: 34,
-          decoration: const BoxDecoration(
-            shape: BoxShape.circle,
-          ),
-          child: const Icon(Icons.notifications_none_rounded,
-              color: AppColors.primary, size: 24),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -243,7 +317,7 @@ class _TontineDetailsScreenState extends State<TontineDetailsScreen> {
               ),
               const SizedBox(height: 10),
               Text(
-                'Créé par $creatorName • ${tontine.memberCount} Membres',
+                'Créé par $creatorName - ${tontine.memberCount} Membres',
                 style: const TextStyle(
                   fontFamily: 'Plus Jakarta Sans',
                   fontSize: 13,
@@ -314,129 +388,29 @@ class _TontineDetailsScreenState extends State<TontineDetailsScreen> {
   }
 
   Widget _buildActionButtons({required String currentUserPhone}) {
-    return FutureBuilder<List<Member>>(
-      future: _membersFuture,
-      builder: (context, snapshot) {
-        final members = snapshot.data ?? const <Member>[];
-        final currentMember = members.where((member) => member.phone == currentUserPhone).isNotEmpty
-            ? members.firstWhere((member) => member.phone == currentUserPhone)
-            : null;
-        final canReceiveCagnotte = currentMember?.allocationStatus == 'current';
-
-        return Column(
+    return Column(
+      children: [
+        Row(
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: SizedBox(
-                    height: 54,
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        // TODO: ouvrir la discussion (non implémenté)
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        elevation: 2,
-                        shadowColor: AppColors.primary.withValues(alpha: 0.2),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      icon: const Icon(Icons.chat_bubble_outline_rounded, size: 20),
-                      label: const Text(
-                        'Discussion',
-                        style: TextStyle(
-                          fontFamily: 'Plus Jakarta Sans',
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: SizedBox(
-                    height: 54,
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => ContratSmartScreen(
-                              tontine: widget.tontine,
-                            ),
-                          ),
-                        );
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFF8D44A),
-                        foregroundColor: const Color(0xFF5F4A00),
-                        elevation: 2,
-                        shadowColor: Colors.black.withValues(alpha: 0.08),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      icon: const Icon(Icons.description_outlined, size: 20),
-                      label: const Text(
-                        'Voir le contrat',
-                        style: TextStyle(
-                          fontFamily: 'Plus Jakarta Sans',
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            if (snapshot.connectionState == ConnectionState.waiting) ...[
-              const SizedBox(height: 12),
-              const SizedBox(
-                height: 4,
-                child: LinearProgressIndicator(minHeight: 2),
-              ),
-            ] else if (canReceiveCagnotte) ...[
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                height: 56,
+            Expanded(
+              child: SizedBox(
+                height: 54,
                 child: ElevatedButton.icon(
                   onPressed: () {
-                    final montant = '${_formatCurrency(widget.tontine.monthlyAmount)} FCFA';
-                    final tourNumber = currentMember?.allocationOrder.toString() ?? '1';
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => ReceptionCagnotteScreen(
-                          tontine: widget.tontine,
-                          montant: montant,
-                          tourNumber: tourNumber,
-                        ),
-                      ),
-                    ).then((result) {
-                      if (result == true && mounted) {
-                        setState(() {
-                          _membersFuture = _service.getMembers(widget.tontine.id);
-                        });
-                      }
-                    });
+                    // TODO: ouvrir la discussion (non implémenté)
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0F5D47),
+                    backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
-                    elevation: 3,
-                    shadowColor: Colors.black.withValues(alpha: 0.12),
+                    elevation: 2,
+                    shadowColor: AppColors.primary.withValues(alpha: 0.2),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(14),
                     ),
                   ),
-                  icon: const Icon(Icons.savings_outlined, size: 20),
+                  icon: const Icon(Icons.chat_bubble_outline_rounded, size: 20),
                   label: const Text(
-                    'Recevoir la cagnotte',
+                    'Discussion',
                     style: TextStyle(
                       fontFamily: 'Plus Jakarta Sans',
                       fontSize: 15,
@@ -445,10 +419,46 @@ class _TontineDetailsScreenState extends State<TontineDetailsScreen> {
                   ),
                 ),
               ),
-            ],
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: SizedBox(
+                height: 54,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ContratSmartScreen(
+                          tontine: widget.tontine,
+                        ),
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF8D44A),
+                    foregroundColor: const Color(0xFF5F4A00),
+                    elevation: 2,
+                    shadowColor: Colors.black.withValues(alpha: 0.08),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  icon: const Icon(Icons.description_outlined, size: 20),
+                  label: const Text(
+                    'Voir le contrat',
+                    style: TextStyle(
+                      fontFamily: 'Plus Jakarta Sans',
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ],
-        );
-      },
+        ),
+      ],
     );
   }
 
@@ -521,7 +531,7 @@ class _TontineDetailsScreenState extends State<TontineDetailsScreen> {
           ),
           const SizedBox(height: 12),
           Text(
-            'Partagez l\'invitation avec vos proches pour compléter votre tontine. Chaque filleul obtient un bonus de 2 000 FCFA!',
+            'Partagez l\'invitation avec vos proches pour compléter votre tontine.',
             style: TextStyle(
               fontFamily: 'Plus Jakarta Sans',
               fontSize: 13,
@@ -565,6 +575,339 @@ class _TontineDetailsScreenState extends State<TontineDetailsScreen> {
     );
   }
 
+  Widget _buildTransactionButton(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF0F5D47).withValues(alpha: 0.1),
+            const Color(0xFF0F5D47).withValues(alpha: 0.05),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border.all(
+          color: const Color(0xFF0F5D47).withValues(alpha: 0.3),
+          width: 1.5,
+        ),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0F5D47).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.payment_outlined,
+                  color: Color(0xFF0F5D47),
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Effectuer une transaction',
+                      style: TextStyle(
+                        fontFamily: 'Manrope',
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textPrimary,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Tontine active - Cotisez maintenant',
+                      style: TextStyle(
+                        fontFamily: 'Plus Jakarta Sans',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'La tontine a commencé. Effectuez votre cotisation à temps pour éviter les pénalités.',
+            style: TextStyle(
+              fontFamily: 'Plus Jakarta Sans',
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textSecondary,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => CotisationPaymentScreen(
+                      tontine: widget.tontine,
+                    ),
+                  ),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0F5D47),
+                foregroundColor: Colors.white,
+                elevation: 2,
+                shadowColor: const Color(0xFF0F5D47).withValues(alpha: 0.2),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              icon: const Icon(Icons.send_rounded, size: 18),
+              label: const Text(
+                'Effectuer ma cotisation',
+                style: TextStyle(
+                  fontFamily: 'Plus Jakarta Sans',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildJoinRequestsPanel(
+    BuildContext context,
+    Tontine tontine, {
+    required bool canManage,
+  }) {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: _db.watchTontineJoinRequests(tontine.id),
+      builder: (context, snapshot) {
+        final requests = snapshot.data ?? const <Map<String, dynamic>>[];
+        final pendingCount = requests.where((r) => (r['statut'] ?? 'PENDING').toString().toUpperCase() == 'PENDING').length;
+
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE7E1D6)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header avec bouton toggle
+              GestureDetector(
+                onTap: () => setState(() => _showJoinRequests = !_showJoinRequests),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Demandes d\'adhésion',
+                            style: TextStyle(
+                              fontFamily: 'Manrope',
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            pendingCount > 0 ? '$pendingCount demande${pendingCount > 1 ? 's' : ''} en attente' : 'Aucune demande',
+                            style: const TextStyle(
+                              fontFamily: 'Plus Jakarta Sans',
+                              fontSize: 12,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      _showJoinRequests ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+                      color: AppColors.primary,
+                      size: 24,
+                    ),
+                  ],
+                ),
+              ),
+              // Contenu déroulable
+              if (_showJoinRequests) ...[
+                const SizedBox(height: 12),
+                if (snapshot.hasError)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text(
+                      'Erreur: ${snapshot.error}',
+                      style: const TextStyle(
+                        fontFamily: 'Plus Jakarta Sans',
+                        fontSize: 12,
+                        color: AppColors.error,
+                      ),
+                    ),
+                  )
+                else if (snapshot.connectionState == ConnectionState.waiting)
+                  const Center(child: SizedBox(height: 40, child: CircularProgressIndicator()))
+                else if (requests.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Text(
+                      'Aucune demande pour le moment.',
+                      style: TextStyle(
+                        fontFamily: 'Plus Jakarta Sans',
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  )
+                else
+                  ...requests.map((req) {
+                    final id = (req['id'] ?? '').toString();
+                    final userName = (req['userName'] ?? 'Utilisateur').toString();
+                    final trustScore = ((req['trustScore'] as num?)?.toDouble() ?? 0).round();
+                    final status = (req['statut'] ?? 'PENDING').toString().toUpperCase();
+                    final canDecide = canManage && status == 'PENDING';
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF9F7F1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFE7E1D6), width: 1),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            userName,
+                            style: const TextStyle(
+                              fontFamily: 'Manrope',
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.stars_rounded,
+                                size: 16,
+                                color: const Color(0xFFF8D44A),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Score de confiance: $trustScore/100',
+                                style: const TextStyle(
+                                  fontFamily: 'Plus Jakarta Sans',
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (canDecide) ...[
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton(
+                                    onPressed: () => _handleJoinRequestDecision(id, false),
+                                    style: OutlinedButton.styleFrom(
+                                      side: const BorderSide(color: AppColors.error),
+                                    ),
+                                    child: const Text(
+                                      'Refuser',
+                                      style: TextStyle(color: AppColors.error),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: ElevatedButton(
+                                    onPressed: () => _handleJoinRequestDecision(id, true),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppColors.primary,
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    child: const Text('Accepter'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  }),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _handleJoinRequestDecision(String requestId, bool accept) async {
+    if (requestId.isEmpty) return;
+    final currentUser = context.read<AuthState>().currentUser;
+    final handledBy = (currentUser?['uid'] ?? currentUser?['userId'] ?? '').toString();
+    if (handledBy.isEmpty) return;
+
+    try {
+      if (accept) {
+        await _db.acceptJoinRequest(requestId: requestId, handledBy: handledBy);
+      } else {
+        await _db.rejectJoinRequest(requestId: requestId, handledBy: handledBy);
+      }
+
+      if (mounted) {
+        setState(() {
+          _membersFuture = _loadMembers();
+          _allocationFuture = _db.getAllocationCalendar(widget.tontine.id);
+        });
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(accept ? 'Demande acceptée' : 'Demande refusée'),
+          backgroundColor: accept ? AppColors.primary : AppColors.error,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Action impossible: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
   static String _formatCurrencyCompact(num amount) {
     return amount.round().toString().replaceAllMapped(
           RegExp(r'(?<=\d)(?=(\d{3})+$)'),
@@ -586,35 +929,26 @@ class _TontineDetailsScreenState extends State<TontineDetailsScreen> {
     if (value.contains('trim')) return 3;
     return 12;
   }
-
-  static String _getInitials(String name) {
-    final parts = name.trim().split(RegExp(r'\s+')).where((e) => e.isNotEmpty).toList();
-    if (parts.isEmpty) return 'T';
-    if (parts.length == 1) {
-      return parts.first.substring(0, 1).toUpperCase();
-    }
-    return '${parts.first.substring(0, 1)}${parts[1].substring(0, 1)}'.toUpperCase();
-  }
 }
 
 class _AllocationTimelineCard extends StatelessWidget {
   final Tontine tontine;
   final String currentUserName;
-  final Future<List<Member>> membersFuture;
+  final Future<List<Map<String, dynamic>>> allocationFuture;
 
   const _AllocationTimelineCard({
     required this.tontine,
     required this.currentUserName,
-    required this.membersFuture,
+    required this.allocationFuture,
   });
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<Member>>(
-      future: membersFuture,
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: allocationFuture,
       builder: (context, snapshot) {
-        final members = snapshot.data ?? const <Member>[];
-        final timeline = _buildTimelineItems(members);
+        final allocationSlots = snapshot.data ?? const <Map<String, dynamic>>[];
+        final timeline = _buildTimelineItems(allocationSlots);
 
         if (timeline.isEmpty) {
           return Container(
@@ -714,53 +1048,33 @@ class _AllocationTimelineCard extends StatelessWidget {
     );
   }
 
-  List<_TimelineItem> _buildTimelineItems(List<Member> members) {
-    if (members.isEmpty) {
+  List<_TimelineItem> _buildTimelineItems(List<Map<String, dynamic>> allocationSlots) {
+    if (allocationSlots.isEmpty) {
       return const [];
     }
 
-    final memberNames = members.take(4).map((m) => m.name).toList();
+    final currentUserFirstName = currentUserName.trim().split(' ').first.toLowerCase();
 
-    final currentUserIndex = memberNames.indexWhere(
-      (name) => name.toLowerCase().contains('vous') || name.toLowerCase().contains(currentUserName.toLowerCase().split(' ').first),
-    );
+    return allocationSlots.map((slot) {
+      final displayName = (slot['displayName'] ?? slot['userId'] ?? 'Membre').toString();
+      final userId = (slot['userId'] ?? '').toString();
+      final rang = (slot['rang'] as num?)?.toInt() ?? 0;
+      final dateAllocation = slot['dateAllocation'];
+      final isCurrentUser = displayName.toLowerCase().contains(currentUserFirstName) ||
+          userId.toLowerCase() == currentUserFirstName;
 
-    return [
-      _TimelineItem(
-        month: 'JANVIER 2024',
-        name: memberNames[0],
-        statusLabel: 'Reçu',
-        progress: 1,
-        color: const Color(0xFFEFEDE6),
-        isPast: true,
-      ),
-      _TimelineItem(
-        month: 'FÉVRIER 2024',
-        name: memberNames.length > 1 ? memberNames[1] : memberNames[0],
-        statusLabel: 'Collecte : 85%',
-        progress: 0.85,
-        color: const Color(0xFFFFFAF0),
-        isPast: true,
-      ),
-      _TimelineItem(
-        month: 'MARS 2024',
-        name: currentUserIndex >= 0
-            ? 'Vous (${memberNames[currentUserIndex]})'
-            : 'Tour en cours',
-        statusLabel: 'Prochain Tour',
-        progress: 0.0,
-        color: const Color(0xFFFFF9EA),
-        isCurrent: true,
-      ),
-      _TimelineItem(
-        month: 'AVRIL 2024',
-        name: memberNames.length > 2 ? memberNames[2] : memberNames.last,
-        statusLabel: 'À venir',
-        progress: 0.0,
-        color: const Color(0xFFF5F5F3),
-        isPast: false,
-      ),
-    ];
+      final monthLabel = dateAllocation == null ? 'Tour $rang' : _formatAllocationDate(dateAllocation);
+
+      return _TimelineItem(
+        month: monthLabel,
+        name: isCurrentUser ? 'Vous ($displayName)' : displayName,
+        statusLabel: rang == 1 ? 'Premier tour' : 'Rang $rang',
+        progress: rang == 1 ? 1 : 0,
+        color: rang == 1 ? const Color(0xFFEFEDE6) : const Color(0xFFF5F5F3),
+        isPast: rang == 1,
+        isCurrent: rang == 1,
+      );
+    }).toList(growable: false);
   }
 }
 
@@ -913,115 +1227,58 @@ class _TimelineItemRow extends StatelessWidget {
 
 class _MembersPanel extends StatelessWidget {
   final Tontine tontine;
-  final Future<List<Member>> membersFuture;
-  final Future<List<Payment>> paymentsFuture;
+  final Future<List<Map<String, dynamic>>> membersFuture;
   final String currentUserName;
 
   const _MembersPanel({
     required this.tontine,
     required this.membersFuture,
-    required this.paymentsFuture,
     required this.currentUserName,
   });
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<Member>>(
+    final isLaunched = _isTontineLaunchedForUi(tontine);
+
+    return FutureBuilder<List<Map<String, dynamic>>>(
       future: membersFuture,
       builder: (context, memberSnapshot) {
-        final members = memberSnapshot.data ?? const <Member>[];
+        final members = memberSnapshot.data ?? const <Map<String, dynamic>>[];
 
-        return FutureBuilder<List<Payment>>(
-          future: paymentsFuture,
-          builder: (context, paymentSnapshot) {
-            final payments = paymentSnapshot.data ?? const <Payment>[];
-
-            return Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(14, 14, 14, 86),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(28),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.04),
-                    blurRadius: 16,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 20),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(28),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 16,
+                offset: const Offset(0, 6),
               ),
-              child: Column(
-                children: [
-                  if (memberSnapshot.connectionState == ConnectionState.waiting ||
-                      paymentSnapshot.connectionState == ConnectionState.waiting)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 24),
-                      child: CircularProgressIndicator(strokeWidth: 2.5),
-                    )
-                  else if (members.isEmpty)
-                    _buildEmptyMembersState(context)
-                  else ...[
-                    ..._buildMemberRows(members, payments),
-                    const SizedBox(height: 14),
-                    Container(
-                      width: double.infinity,
-                      height: 56,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE4E2D9),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        alignment: Alignment.center,
-                        children: [
-                          Positioned(
-                            right: 12,
-                            child: SizedBox(
-                              width: 230,
-                              height: 50,
-                              child: ElevatedButton.icon(
-                                onPressed: () {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) => CotisationPaymentScreen(tontine: tontine),
-                                    ),
-                                  );
-                                },
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFFF8D44A),
-                                  foregroundColor: const Color(0xFF5F4A00),
-                                  elevation: 3,
-                                  shadowColor: Colors.black.withValues(alpha: 0.12),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(28),
-                                  ),
-                                ),
-                                icon: const Icon(Icons.payments_outlined, size: 20),
-                                label: const Text(
-                                  'Effectuer ma cotisation',
-                                  style: TextStyle(
-                                    fontFamily: 'Plus Jakarta Sans',
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            );
-          },
+            ],
+          ),
+          child: Column(
+            children: [
+              if (memberSnapshot.connectionState == ConnectionState.waiting)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                )
+              else if (members.isEmpty)
+                _buildEmptyMembersState(context, showInviteButton: !isLaunched)
+              else ...[
+                ..._buildMemberRows(members),
+              ],
+            ],
+          ),
         );
       },
     );
   }
 
-  Widget _buildEmptyMembersState(BuildContext context) {
+  Widget _buildEmptyMembersState(BuildContext context, {required bool showInviteButton}) {
     return Column(
       children: [
         Container(
@@ -1060,54 +1317,59 @@ class _MembersPanel extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 14),
-        SizedBox(
-          width: double.infinity,
-          height: 56,
-          child: ElevatedButton.icon(
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (_) => InviteShareDialog(tontine: tontine),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFF8D44A),
-              foregroundColor: const Color(0xFF5F4A00),
-              elevation: 3,
-              shadowColor: Colors.black.withValues(alpha: 0.12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(28),
+        if (showInviteButton) ...[
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (_) => InviteShareDialog(tontine: tontine),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFF8D44A),
+                foregroundColor: const Color(0xFF5F4A00),
+                elevation: 3,
+                shadowColor: Colors.black.withValues(alpha: 0.12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(28),
+                ),
               ),
-            ),
-            icon: const Icon(Icons.person_add_alt_1_rounded, size: 20),
-            label: const Text(
-              'Inviter des membres',
-              style: TextStyle(
-                fontFamily: 'Plus Jakarta Sans',
-                fontSize: 14,
-                fontWeight: FontWeight.w800,
+              icon: const Icon(Icons.person_add_alt_1_rounded, size: 20),
+              label: const Text(
+                'Inviter des membres',
+                style: TextStyle(
+                  fontFamily: 'Plus Jakarta Sans',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
           ),
-        ),
+        ],
       ],
     );
   }
 
-  List<Widget> _buildMemberRows(List<Member> members, List<Payment> payments) {
-    final paidMemberIds = payments.where((p) => p.status == 'completed').map((p) => p.memberId).toSet();
+  List<Widget> _buildMemberRows(List<Map<String, dynamic>> members) {
     final highlightedName = currentUserName.toLowerCase();
 
     final displayMembers = members.map((member) {
-      final isCurrentUser = member.name.toLowerCase().contains(highlightedName.split(' ').first) || member.name.toLowerCase().contains('vous');
-      final bool isPaid = paidMemberIds.contains(member.id) || member.isPaid;
+      final memberName = (member['displayName'] ?? member['name'] ?? 'Membre').toString();
+      final isCurrentUser = memberName.toLowerCase().contains(highlightedName.split(' ').first) || memberName.toLowerCase().contains('vous');
+      final bool isPaid = (member['isPaid'] as bool?) ?? false;
+      final score = (member['score'] as num?)?.toInt() ?? 40;
+      final role = (member['role'] ?? 'Membre actif').toString();
       return _MemberDisplay(
-        name: isCurrentUser ? 'Vous (Moi)' : member.name,
-        subtitle: member.role == 'organizer' ? 'Bénéficiaire' : 'Membre actif',
+        name: isCurrentUser ? 'Vous (Moi)' : memberName,
+        subtitle: role == 'Créateur' || role == 'organizer' ? 'Créateur' : 'Membre actif',
         status: isPaid ? 'Payé' : 'En attente',
         isPaid: isPaid,
         highlighted: isCurrentUser,
+        score: score,
       );
     }).toList();
 
@@ -1131,6 +1393,11 @@ class _MemberRow extends StatelessWidget {
         ? const Color(0xFFF8D44A)
         : const Color(0xFFF0EBDD);
     final statusColor = display.isPaid ? const Color(0xFF128A3A) : const Color(0xFF8A6F00);
+    final scoreColor = display.score >= 80
+      ? const Color(0xFF128A3A)
+      : display.score >= 60
+        ? const Color(0xFF8A6F00)
+        : const Color(0xFFC4582E);
 
     return Container(
       padding: const EdgeInsets.all(10),
@@ -1188,6 +1455,24 @@ class _MemberRow extends StatelessWidget {
                     ),
                   ),
                 ),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: scoreColor.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: scoreColor.withValues(alpha: 0.18)),
+                  ),
+                  child: Text(
+                    'Score ${display.score}/100',
+                    style: TextStyle(
+                      fontFamily: 'Plus Jakarta Sans',
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: scoreColor,
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -1213,12 +1498,14 @@ class _MemberDisplay {
   final String status;
   final bool isPaid;
   final bool highlighted;
+  final int score;
 
   const _MemberDisplay({
     required this.name,
     required this.subtitle,
     required this.status,
     required this.isPaid,
+    required this.score,
     this.highlighted = false,
   });
 }

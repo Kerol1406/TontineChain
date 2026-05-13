@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:tontinechain/constants/app_colors.dart';
+import 'package:tontinechain/services/backend_service.dart';
 import 'package:tontinechain/services/auth_state.dart';
-import 'package:tontinechain/providers/tontine_provider.dart';
 import 'package:tontinechain/services/firestore_database_service.dart';
 import 'package:tontinechain/screens/onboarding_screen.dart';
+import 'package:tontinechain/screens/wallet_recharge_screen.dart';
 
 /// Écran Profil — TontineChain
-/// Sections : Avatar, Trust Score, Patrimoine, Sécurité,
+/// Sections : Avatar, Trust Score, Portefeuille, Sécurité,
 ///             Historique Cotisations, Paramètres, Déconnexion
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -17,15 +18,124 @@ class ProfileScreen extends StatefulWidget {
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen> {
+class _ProfileScreenState extends State<ProfileScreen> with WidgetsBindingObserver {
   bool _activeMode = false;
   bool _updatingActiveMode = false;
+  double? _trustScore;
+  String? _loadedUserId;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncActiveModeFromProfile();
+      _loadTrustScore();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _syncActiveModeFromProfile();
+    }
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     final user = context.watch<AuthState>().currentUser ?? {};
     _activeMode = user['isLookingForTontine'] == true || user['activeMode'] == true;
+
+    final userId = user['uid']?.toString();
+    if (userId != null && userId.isNotEmpty && userId != _loadedUserId) {
+      _loadedUserId = userId;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _loadTrustScore();
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  Future<void> _refreshUserProfile() async {
+    final authState = context.read<AuthState>();
+    final currentUser = authState.currentUser;
+    final userId = currentUser?['uid']?.toString();
+
+    if (userId == null || userId.isEmpty) {
+      return;
+    }
+
+    final refreshedUser = await FirestoreDatabaseService.instance.getUserProfile(userId);
+    if (refreshedUser != null && mounted) {
+      authState.setUser({...currentUser!, ...refreshedUser});
+    }
+  }
+
+  Future<void> _syncActiveModeFromProfile() async {
+    final authState = context.read<AuthState>();
+    final currentUser = authState.currentUser;
+    final userId = currentUser?['uid']?.toString();
+
+    if (userId == null || userId.isEmpty) {
+      return;
+    }
+
+    final refreshedUser = await FirestoreDatabaseService.instance.getUserProfile(userId);
+    if (!mounted || refreshedUser == null) {
+      return;
+    }
+
+    final isActive = refreshedUser['isLookingForTontine'] == true || refreshedUser['activeMode'] == true;
+    final mergedUser = {...?currentUser, ...refreshedUser};
+
+    authState.setUser(mergedUser);
+    setState(() {
+      _activeMode = isActive;
+    });
+
+    if (mounted) {
+      _loadTrustScore();
+    }
+  }
+
+  Future<void> _loadTrustScore() async {
+    final authState = context.read<AuthState>();
+    final currentUser = authState.currentUser;
+    final userId = currentUser?['uid']?.toString();
+
+    if (userId == null || userId.isEmpty) {
+      return;
+    }
+
+    try {
+      final response = await BackendService.instance.getUserGlobalScore(userId);
+      final globalScore = response['globalScore'] as Map<String, dynamic>?;
+      final backendScore = (globalScore?['score'] as num?)?.toDouble();
+      if (!mounted || backendScore == null) {
+        return;
+      }
+
+      setState(() {
+        _trustScore = backendScore;
+      });
+    } catch (_) {
+      final localScore = (currentUser?['trustScore'] as num?)?.toDouble() ??
+          (currentUser?['globalScore'] as num?)?.toDouble();
+      if (!mounted || localScore == null) {
+        return;
+      }
+      setState(() {
+        _trustScore = localScore;
+      });
+    }
   }
 
   Future<void> _setActiveMode(bool value) async {
@@ -69,13 +179,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthState>().currentUser ?? {};
-    final tontineProvider = context.watch<TontineProvider>();
     final String name  = (user['displayName']  ?? user['name'] ?? 'Utilisateur').toString();
     final String email = (user['email'] ?? 'non.renseigne@patrimoine.tg').toString();
     final String phone = (user['phone'] ?? user['phoneNumber'] ?? 'Non renseigné').toString();
     final String initials = _getInitials(name);
-    final patrimoineTotal = _formatAmount(tontineProvider.patrimoineTotal);
+    final soldeUtilisateur = _formatAmount((user['solde'] as num?)?.toDouble() ?? 0);
     final isActiveMode = user['isLookingForTontine'] == true || user['activeMode'] == true;
+    final createdAtYear = _getCreatedAtYear(user['createdAt']);
 
     SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -87,9 +197,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // ── AppBar custom (identique au Dashboard) ─────────────────────
-            _buildAppBar(initials, context),
-
             // ── Contenu scrollable ─────────────────────────────────────────
             Expanded(
               child: SingleChildScrollView(
@@ -100,15 +207,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const SizedBox(height: 24),
 
                     // Avatar + nom + email + wallet + membre depuis
-                    _buildProfileHeader(initials, name, email, isActiveMode),
+                      _buildProfileHeader(initials, name, email, isActiveMode, createdAtYear),
                     const SizedBox(height: 20),
 
                     // Trust Score
                     _buildTrustScore(),
                     const SizedBox(height: 16),
 
-                    // Patrimoine + boutons
-                    _buildPatrimoineCard(context, patrimoineTotal),
+                    // Portefeuille + boutons
+                    _buildPatrimoineCard(context, soldeUtilisateur),
                     const SizedBox(height: 16),
 
                     // Sécurité
@@ -211,55 +318,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // APP BAR
-  // ═══════════════════════════════════════════════════════════════════════════
-  Widget _buildAppBar(String initials, BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      child: Row(
-        children: [
-          Container(
-            width: 42, height: 42,
-            decoration: BoxDecoration(
-              color: AppColors.primary,
-              shape: BoxShape.circle,
-              border: Border.all(color: AppColors.secondary.withValues(alpha: 0.6), width: 2),
-            ),
-            child: Center(
-              child: Text(initials,
-                style: const TextStyle(
-                  fontFamily: 'Manrope', fontSize: 15,
-                  fontWeight: FontWeight.w700, color: Colors.white,
-                )),
-            ),
-          ),
-          const SizedBox(width: 12),
-          const Text('TontineChain',
-            style: TextStyle(
-              fontFamily: 'Manrope', fontSize: 20,
-              fontWeight: FontWeight.w800, color: AppColors.textPrimary,
-              letterSpacing: -0.3,
-            )),
-          const Spacer(),
-          Container(
-            width: 42, height: 42,
-            decoration: BoxDecoration(
-              color: AppColors.surface, shape: BoxShape.circle,
-              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.06),
-                  blurRadius: 8, offset: const Offset(0, 2))],
-            ),
-            child: const Icon(Icons.notifications_outlined,
-                color: AppColors.primary, size: 22),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
   // PROFILE HEADER — Avatar, nom, email, wallet, membre depuis
   // ═══════════════════════════════════════════════════════════════════════════
-  Widget _buildProfileHeader(String initials, String name, String email, bool isActiveMode) {
+  Widget _buildProfileHeader(String initials, String name, String email, bool isActiveMode, String createdAtYear) {
     return Center(
       child: Column(
         children: [
@@ -376,8 +437,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: AppColors.primary.withValues(alpha: 0.15)),
             ),
-            child: const Text('Membre depuis 2022',
-              style: TextStyle(
+            child: Text('Membre depuis $createdAtYear',
+              style: const TextStyle(
                 fontFamily: 'Plus Jakarta Sans', fontSize: 12,
                 fontWeight: FontWeight.w500, color: AppColors.textSecondary,
               )),
@@ -391,6 +452,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // TRUST SCORE
   // ═══════════════════════════════════════════════════════════════════════════
   Widget _buildTrustScore() {
+    final user = context.watch<AuthState>().currentUser ?? {};
+    final score = (_trustScore ??
+        (user['trustScore'] as num?)?.toDouble() ??
+        (user['globalScore'] as num?)?.toDouble() ??
+        0).round();
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
@@ -410,13 +477,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
           // Score bicolore
           RichText(
-            text: const TextSpan(
+            text: TextSpan(
               style: TextStyle(
                 fontFamily: 'Manrope', fontSize: 40,
                 fontWeight: FontWeight.w800, letterSpacing: -1,
               ),
               children: [
-                TextSpan(text: '98', style: TextStyle(color: Colors.white)),
+                TextSpan(text: '$score', style: const TextStyle(color: Colors.white)),
                 TextSpan(text: '/100',
                   style: TextStyle(color: Colors.white54, fontSize: 28)),
               ],
@@ -444,9 +511,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // PATRIMOINE + BOUTONS DÉPOSER / RETIRER
+  // PORTEFEUILLE + BOUTONS RECHARGER / RETIRER
   // ═══════════════════════════════════════════════════════════════════════════
-  Widget _buildPatrimoineCard(BuildContext context, String patrimoineTotal) {
+  Widget _buildPatrimoineCard(BuildContext context, String solde) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -461,23 +528,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Label + icône banque
+          // Label + icône portefeuille
           Row(
             children: [
-              const Text('Patrimoine Total Estimé',
-                style: TextStyle(
-                  fontFamily: 'Plus Jakarta Sans', fontSize: 13,
-                  color: AppColors.textSecondary,
-                )),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Mon Portefeuille',
+                    style: TextStyle(
+                      fontFamily: 'Plus Jakarta Sans', fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary,
+                    )),
+                  const SizedBox(height: 2),
+                  const Text('Garantie pour les tontines',
+                    style: TextStyle(
+                      fontFamily: 'Plus Jakarta Sans', fontSize: 11,
+                      color: AppColors.textSecondary,
+                      fontStyle: FontStyle.italic,
+                    )),
+                ],
+              ),
               const Spacer(),
-              Icon(Icons.account_balance_outlined,
-                  color: AppColors.textSecondary.withValues(alpha: 0.5), size: 20),
+              Icon(Icons.account_balance_wallet_outlined,
+                  color: AppColors.primary, size: 24),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 14),
 
-          // Montant — 0 pour nouveau compte
-          Text(patrimoineTotal,
+          // Montant — solde actuel
+          Text(solde,
             style: TextStyle(
               fontFamily: 'Manrope', fontSize: 34,
               fontWeight: FontWeight.w800, color: AppColors.textPrimary,
@@ -491,19 +571,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
             )),
           const SizedBox(height: 18),
 
-          // Boutons Déposer / Retirer
+          // Boutons Recharger / Retirer
           Row(
             children: [
-              // Déposer — primary
+              // Recharger — primary
               Expanded(
                 child: SizedBox(
                   height: 44,
                   child: ElevatedButton.icon(
-                    onPressed: () {
-                      // TODO: navigate to deposit screen
+                    onPressed: () async {
+                      final result = await Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const WalletRechargeScreen()),
+                      );
+                      if (result == true) {
+                        await _refreshUserProfile();
+                      }
                     },
                     icon: const Icon(Icons.add, size: 18),
-                    label: const Text('Déposer',
+                    label: const Text('Recharger',
                       style: TextStyle(
                         fontFamily: 'Plus Jakarta Sans',
                         fontSize: 14, fontWeight: FontWeight.w700,
@@ -525,8 +611,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 child: SizedBox(
                   height: 44,
                   child: OutlinedButton.icon(
-                    onPressed: () {
-                      // TODO: navigate to withdraw screen
+                    onPressed: () async {
+                      final result = await Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const WalletRechargeScreen(isWithdrawal: true)),
+                      );
+                      if (result == true) {
+                        await _refreshUserProfile();
+                      }
                     },
                     icon: const Icon(Icons.upload_outlined, size: 18),
                     label: const Text('Retirer',
@@ -862,6 +954,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // Bottom nav is owned by AppShell; removed local bottom nav to avoid duplication.
 
   // ── Helper ────────────────────────────────────────────────────────────────
+  String _getCreatedAtYear(dynamic createdAt) {
+    try {
+      if (createdAt == null) return DateTime.now().year.toString();
+      
+      DateTime dateTime;
+      if (createdAt is String) {
+        dateTime = DateTime.parse(createdAt);
+      } else if (createdAt is int) {
+        // Timestamp in milliseconds
+        dateTime = DateTime.fromMillisecondsSinceEpoch(createdAt);
+      } else {
+        // Try to convert to string and parse
+        dateTime = DateTime.parse(createdAt.toString());
+      }
+      return dateTime.year.toString();
+    } catch (e) {
+      return DateTime.now().year.toString();
+    }
+  }
+
   String _getInitials(String value) {
     final parts = value.trim().split(RegExp(r'\s+'));
     if (parts.isEmpty || parts.first.isEmpty) return 'U';

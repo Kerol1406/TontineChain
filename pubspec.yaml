@@ -44,6 +44,7 @@ dependencies:
   firebase_messaging: ^16.2.0
   flutter_secure_storage: ^10.0.0
   web3dart: ^3.0.2
+  http: ^1.1.0
 
 dev_dependencies:
   flutter_test:

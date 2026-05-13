@@ -101,8 +101,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         bottom: false,
         child: Column(
           children: [
-            // AppBar custom — visible uniquement sur Accueil et Explorer
-            if (_currentNavIndex == 0 || _currentNavIndex == 1)
+            // AppBar custom — visible sur Accueil, Explorer, Créer, et Profil
+            if (_currentNavIndex == 0 || _currentNavIndex == 1 || _currentNavIndex == 2 || _currentNavIndex == 4)
               _buildAppBar(userInitials, userName)
             else
               const SizedBox.shrink(),

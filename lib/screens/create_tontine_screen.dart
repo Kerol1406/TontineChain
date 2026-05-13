@@ -212,7 +212,6 @@ class _CreateTontineScreenState extends State<CreateTontineScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            _buildAppBar(),
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -236,53 +235,6 @@ class _CreateTontineScreenState extends State<CreateTontineScreen> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // APP BAR
-  // ═══════════════════════════════════════════════════════════════════════════
-  Widget _buildAppBar() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      child: Row(
-        children: [
-          Container(
-            width: 42, height: 42,
-            decoration: BoxDecoration(
-              color: AppColors.primary, shape: BoxShape.circle,
-              border: Border.all(
-                  color: AppColors.secondary.withValues(alpha: 0.6), width: 2),
-            ),
-            child: const Center(
-              child: Text('TC',
-                style: TextStyle(
-                  fontFamily: 'Manrope', fontSize: 14,
-                  fontWeight: FontWeight.w700, color: Colors.white,
-                )),
-            ),
-          ),
-          const SizedBox(width: 12),
-          const Text('TontineChain',
-            style: TextStyle(
-              fontFamily: 'Manrope', fontSize: 20,
-              fontWeight: FontWeight.w800, color: AppColors.textPrimary,
-              letterSpacing: -0.3,
-            )),
-          const Spacer(),
-          Container(
-            width: 42, height: 42,
-            decoration: BoxDecoration(
-              color: AppColors.surface, shape: BoxShape.circle,
-              boxShadow: [BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.06),
-                  blurRadius: 8, offset: const Offset(0, 2))],
-            ),
-            child: const Icon(Icons.notifications_outlined,
-                color: AppColors.primary, size: 22),
-          ),
-        ],
       ),
     );
   }
@@ -572,27 +524,33 @@ class _CreateTontineScreenState extends State<CreateTontineScreen> {
                       : AppColors.textSecondary.withValues(alpha: 0.5),
                 ),
                 const SizedBox(width: 10),
-                Text(
-                  _isCustomFrequency
-                      ? 'Fréquence personnalisée (actif)'
-                      : '+ Personnalisé  (ex: Chaque jeudi)',
-                  style: TextStyle(
-                    fontFamily: 'Plus Jakarta Sans', fontSize: 13,
-                    fontWeight: _isCustomFrequency
-                        ? FontWeight.w700 : FontWeight.w500,
+                Flexible(
+                  child: Text(
+                    _isCustomFrequency
+                        ? 'Fréquence personnalisée (actif)'
+                        : '+ Personnalisé  (ex: Chaque jeudi)',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: 'Plus Jakarta Sans', fontSize: 13,
+                      fontWeight: _isCustomFrequency
+                          ? FontWeight.w700 : FontWeight.w500,
+                      color: _isCustomFrequency
+                          ? AppColors.tertiary
+                          : AppColors.textSecondary.withValues(alpha: 0.6),
+                    )),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(left: 10),
+                  child: Icon(
+                    _isCustomFrequency
+                        ? Icons.expand_less_rounded
+                        : Icons.expand_more_rounded,
+                    size: 18,
                     color: _isCustomFrequency
                         ? AppColors.tertiary
-                        : AppColors.textSecondary.withValues(alpha: 0.6),
-                  )),
-                const Spacer(),
-                Icon(
-                  _isCustomFrequency
-                      ? Icons.expand_less_rounded
-                      : Icons.expand_more_rounded,
-                  size: 18,
-                  color: _isCustomFrequency
-                      ? AppColors.tertiary
-                      : AppColors.textSecondary.withValues(alpha: 0.4),
+                        : AppColors.textSecondary.withValues(alpha: 0.4),
+                  ),
                 ),
               ],
             ),

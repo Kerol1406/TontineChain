@@ -227,7 +227,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
           'lastName': _lastNameController.text,
           'email': result['email'],
           'phone': phone,
+          'phoneNumber': phone,
           'displayName': result['displayName'],
+          'isLookingForTontine': true,
+          'activeMode': true,
+          'activeSearchStatus': 'Disponible et en recherche',
+          'solde': 0,
           'role': 'user',
         });
         Navigator.of(context).pushReplacement(

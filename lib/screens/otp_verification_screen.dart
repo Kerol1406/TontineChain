@@ -147,6 +147,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                     height: boxSize,
                     child: Container(
                       decoration: BoxDecoration(
+                        color: Colors.white,
                         shape: BoxShape.circle,
                         border: Border.all(
                           color: _otpControllers[index].text.isNotEmpty
@@ -154,10 +155,19 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                               : AppColors.divider,
                           width: 2,
                         ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.03),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
                       ),
                       child: TextField(
                         controller: _otpControllers[index],
                         textAlign: TextAlign.center,
+                        textAlignVertical: TextAlignVertical.center,
+                        cursorColor: AppColors.primary,
                         keyboardType: TextInputType.number,
                         maxLength: 1,
                         onChanged: (value) {
@@ -171,10 +181,12 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                         decoration: const InputDecoration(
                           counterText: '',
                           border: InputBorder.none,
+                          contentPadding: EdgeInsets.zero,
                         ),
                         style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
                         ),
                       ),
                     ),

@@ -4,6 +4,7 @@ import 'package:tontinechain/widgets/common_button.dart';
 import 'package:provider/provider.dart';
 import 'package:tontinechain/services/auth_state.dart';
 import 'package:tontinechain/services/firebase_auth_service.dart';
+import 'package:tontinechain/services/firestore_database_service.dart';
 import 'auth_screen.dart';
 import 'otp_verification_screen.dart';
 import 'app_shell.dart';
@@ -30,9 +31,8 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    // Valeurs par défaut pour tester l'écran OTP sans saisie
-    _phoneController = TextEditingController(text: '0000 0000');
-    _passwordController = TextEditingController(text: 'Password123!');
+    _phoneController = TextEditingController();
+    _passwordController = TextEditingController();
     _otpControllers = List.generate(6, (_) => TextEditingController());
     _remainingTime = Duration(seconds: 55);
     _startOtpTimer();
@@ -69,6 +69,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() => _isLoading = true);
 
+    print('\n========== LOGIN ATTEMPT ==========');
+    print('📱 Téléphone: ${_phoneController.text.trim()}');
+    print('🔒 Mot de passe: ${_passwordController.text.length} caractères');
+
     // Appel Firebase Auth pour la connexion (email/password via resolved phone->email)
     final result = await FirebaseAuthService().login(
       identifier: _phoneController.text.trim(),
@@ -77,12 +81,16 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (!mounted) return;
 
+    print('📊 Résultat login: ${result['success']} - ${result['error']}');
+
     if (result['success'] == true) {
       final profile = result['profile'] as Map<String, dynamic>?;
       final phone = (profile != null && profile['phone'] != null)
           ? profile['phone'] as String
           : _phoneController.text.trim();
 
+      print('✅ Première étape réussie, navigation vers OTP...');
+      
       final otpResult = await Navigator.of(context).push<Map<String, String>>(
         MaterialPageRoute(
           builder: (_) => OtpVerificationScreen(phoneNumber: phone),
@@ -92,9 +100,12 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
 
       if (otpResult == null) {
+        print('⚠️  OTP annulé par l\'utilisateur');
         setState(() => _isLoading = false);
         return;
       }
+
+      print('📱 OTP reçu, vérification...');
 
       final reauth = await FirebaseAuthService().reauthenticateWithPhone(
         verificationId: otpResult['verificationId'] ?? '',
@@ -103,14 +114,18 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       if (reauth['success'] == true) {
+        print('✅ OTP vérifié, authentification complète!');
         setState(() => _isLoading = false);
 
         final auth = Provider.of<AuthState>(context, listen: false);
+        final profile = result['profile'] as Map<String, dynamic>?;
         auth.setUser({
           'uid': result['uid'],
-          'email': result['email'],
-          'displayName': result['displayName'],
-          'phone': phone,
+          ...?profile,
+          'email': profile?['email'] ?? result['email'],
+          'displayName': profile?['displayName'] ?? result['displayName'],
+          'phone': profile?['phone'] ?? phone,
+          'phoneNumber': profile?['phone'] ?? phone,
           'role': 'user',
         });
 
@@ -125,6 +140,7 @@ class _LoginScreenState extends State<LoginScreen> {
           MaterialPageRoute(builder: (_) => const AppShell()),
         );
       } else {
+        print('❌ OTP échoué: ${reauth['error']}');
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -134,6 +150,8 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
     } else {
+      print('❌ Première étape échouée: ${result['error']}');
+      print('   Code: ${result['code']}');
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -174,11 +192,17 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (reauth['success'] == true) {
       final auth = Provider.of<AuthState>(context, listen: false);
+      final profile = FirebaseAuthService().currentUser == null
+          ? null
+          : await FirestoreDatabaseService.instance
+              .getUserProfile(FirebaseAuthService().currentUser!.uid);
       auth.setUser({
         'uid': FirebaseAuthService().currentUser?.uid,
-        'email': FirebaseAuthService().currentUser?.email,
-        'displayName': FirebaseAuthService().currentUser?.displayName,
-        'phone': _phoneController.text.trim(),
+        ...?profile,
+        'email': profile?['email'] ?? FirebaseAuthService().currentUser?.email,
+        'displayName': profile?['displayName'] ?? FirebaseAuthService().currentUser?.displayName,
+        'phone': profile?['phone'] ?? _phoneController.text.trim(),
+        'phoneNumber': profile?['phone'] ?? _phoneController.text.trim(),
         'role': 'user',
       });
 

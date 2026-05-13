@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:tontinechain/constants/app_colors.dart';
 import 'package:tontinechain/models/tontine.dart';
-import 'package:tontinechain/providers/tontine_provider.dart';
-import 'package:tontinechain/screens/tontine_details_screen.dart';
 import 'package:tontinechain/services/auth_state.dart';
 import 'package:tontinechain/services/firestore_database_service.dart';
 
@@ -19,6 +17,36 @@ class JoinTontineScreen extends StatefulWidget {
 class _JoinTontineScreenState extends State<JoinTontineScreen> {
   final List<bool> _checks = List<bool>.filled(5, false);
   bool _joining = false;
+  bool _requestSent = false;
+  final FirestoreDatabaseService _db = FirestoreDatabaseService.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkExistingRequest();
+  }
+
+  Future<void> _checkExistingRequest() async {
+    try {
+      final userId = context.read<AuthState>().currentUser?['uid']?.toString();
+      if (userId == null || userId.isEmpty) return;
+
+      final requests = await _db.watchTontineJoinRequests(widget.tontine.id).first;
+      Map<String, dynamic>? existingRequest;
+      for (final req in requests) {
+        if ((req['userId'] ?? '').toString() == userId) {
+          existingRequest = req;
+          break;
+        }
+      }
+
+      if (existingRequest != null && mounted) {
+        setState(() => _requestSent = true);
+      }
+    } catch (e) {
+      // Silently ignore errors loading requests
+    }
+  }
 
   static const Color _pageBackground = Color(0xFFF6F4EE);
   static const Color _cardGreen = Color(0xFF0A4A39);
@@ -71,9 +99,7 @@ class _JoinTontineScreenState extends State<JoinTontineScreen> {
     if (!_canJoin || _joining) return;
 
     final userId = context.read<AuthState>().currentUser?['uid']?.toString();
-    final tontineProvider = context.read<TontineProvider>();
     final messenger = ScaffoldMessenger.of(context);
-    final navigator = Navigator.of(context);
     if (userId == null || userId.isEmpty) {
       messenger.showSnackBar(
         const SnackBar(
@@ -87,10 +113,12 @@ class _JoinTontineScreenState extends State<JoinTontineScreen> {
     setState(() => _joining = true);
 
     try {
-      final db = FirestoreDatabaseService.instance;
-      final fresh = await db.getTontineAsModel(widget.tontine.id);
-      final referenceTontine = fresh ?? widget.tontine;
-      final alreadyMember =
+        final db = FirestoreDatabaseService.instance;
+        final fresh = await db.getTontineAsModel(widget.tontine.id);
+        final referenceTontine = fresh ?? widget.tontine;
+        final currentUser = context.read<AuthState>().currentUser;
+        final userName_var = (currentUser?['name'] ?? 'Utilisateur').toString();
+        final alreadyMember =
           referenceTontine.memberIds.contains(userId) || referenceTontine.creatorId == userId;
 
       if (alreadyMember) {
@@ -104,30 +132,45 @@ class _JoinTontineScreenState extends State<JoinTontineScreen> {
         );
         return;
       }
+      // Create a join request so the tontine creator can accept it.
+      final userName = userName_var;
+      final userPhone = (currentUser?['phone'] ?? '').toString();
+      await db.addJoinRequest(
+        tontineId: widget.tontine.id,
+        userId: userId,
+        userName: userName,
+        userPhone: userPhone,
+      );
 
-      await db.addMemberToTontine(widget.tontine.id, userId);
-      await db.addTontineToUser(userId, widget.tontine.id);
-
-      final updatedTontine = await db.getTontineAsModel(widget.tontine.id) ?? referenceTontine;
+      // Notify the creator
+      final creatorId = widget.tontine.creatorId;
+      if (creatorId.isNotEmpty) {
+        await db.addNotification(
+          userId: creatorId,
+          title: 'Nouvelle demande',
+          message: 'Quelqu\'un a demandé à rejoindre "${widget.tontine.name}".',
+          type: 'JOIN_REQUEST',
+          tontineId: widget.tontine.id,
+        );
+      }
 
       if (!mounted) return;
-      await tontineProvider.loadTontines();
-      await tontineProvider.loadHomeSummary(userId);
-
-      if (!mounted) return;
-      setState(() => _joining = false);
+      setState(() {
+        _joining = false;
+        _requestSent = true;
+      });
       messenger.showSnackBar(
         SnackBar(
-          content: Text('Vous avez rejoint ${updatedTontine.name} avec succès.'),
+          content: Text('Demande envoyée. Le créateur doit l\'accepter.'),
           backgroundColor: AppColors.primary,
         ),
       );
 
-      navigator.pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => TontineDetailsScreen(tontine: updatedTontine),
-        ),
-      );
+      // Attendre 2 secondes avant de naviguer pour montrer le message
+      await Future.delayed(const Duration(seconds: 2));
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _joining = false);
@@ -236,10 +279,10 @@ class _JoinTontineScreenState extends State<JoinTontineScreen> {
                           : const [],
                     ),
                     child: ElevatedButton(
-                      onPressed: (_canJoin && !_joining) ? _joinTontine : null,
+                      onPressed: (_canJoin && !_joining && !_requestSent) ? _joinTontine : null,
                       style: ElevatedButton.styleFrom(
                         backgroundColor:
-                          (_canJoin && !_joining) ? const Color(0xFF003527) : const Color(0xFFD8DED9),
+                          (_canJoin && !_joining && !_requestSent) ? const Color(0xFF003527) : const Color(0xFFD8DED9),
                         disabledBackgroundColor: const Color(0xFFD8DED9),
                         elevation: 0,
                         shape: RoundedRectangleBorder(
@@ -250,29 +293,33 @@ class _JoinTontineScreenState extends State<JoinTontineScreen> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
-                            _joining
-                                ? Icons.hourglass_top_rounded
-                                : (_canJoin
-                                    ? Icons.check_circle_outline_rounded
-                                    : Icons.lock_outline_rounded),
+                            _requestSent
+                                ? Icons.check_rounded
+                                : (_joining
+                                    ? Icons.hourglass_top_rounded
+                                    : (_canJoin
+                                        ? Icons.check_circle_outline_rounded
+                                        : Icons.lock_outline_rounded)),
                             size: 18,
-                            color: (_canJoin && !_joining)
+                            color: (_requestSent || (_canJoin && !_joining))
                                 ? const Color(0xFFEAF7F1)
                                 : const Color(0xFF909B94),
                           ),
                           const SizedBox(width: 10),
                           Text(
-                            _joining
-                                ? 'Intégration\nen cours...'
-                                : (_canJoin
-                                    ? 'Rejoindre la\nTontine'
-                                    : 'Valider les\nengagements'),
+                            _requestSent
+                                ? 'Demande\nenvoyée'
+                                : (_joining
+                                    ? 'Intégration\nen cours...'
+                                    : (_canJoin
+                                        ? 'Rejoindre la\nTontine'
+                                        : 'Valider les\nengagements')),
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontFamily: 'Plus Jakarta Sans',
                               fontSize: 15,
-                              fontWeight: (_canJoin && !_joining) ? FontWeight.w700 : FontWeight.w500,
-                              color: (_canJoin && !_joining)
+                              fontWeight: (_requestSent || (_canJoin && !_joining)) ? FontWeight.w700 : FontWeight.w500,
+                              color: (_requestSent || (_canJoin && !_joining))
                                   ? const Color(0xFFEAF7F1)
                                   : const Color(0xFF7A857E),
                               height: 1.05,

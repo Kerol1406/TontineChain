@@ -26,7 +26,11 @@ class TontineChainApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => TontineProvider()),
-        ChangeNotifierProvider(create: (_) => AuthState()),
+        ChangeNotifierProvider(create: (_) {
+          final authState = AuthState();
+          authState.listenToAuthChanges();
+          return authState;
+        }),
       ],
       child: MaterialApp(
         title: AppStrings.appName,
