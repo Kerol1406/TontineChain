@@ -7,7 +7,7 @@ class BackendService {
   static final BackendService instance = BackendService._internal();
   
   late String _baseUrl;
-  final String _defaultBaseUrl = 'http://localhost:8787'; // À remplacer par env var
+  final String _defaultBaseUrl = 'https://tontinechain-backend.onrender.com';
   
   BackendService._internal() {
     _baseUrl = _defaultBaseUrl;
