@@ -119,7 +119,18 @@ router.post('/tontines/:tontineId/pay', async (req, res) => {
 
     const tontineInfo = await contract.getTontine(tontineId);
     const contributionAmount = tontineInfo[1];
-    const currentCycle = Number(cycleId || tontineInfo[3] || 0);
+
+    // Determine cycle to pay: prefer explicit cycleId, else contract current cycle, else 1
+    let currentCycle = Number(cycleId || 0);
+    if (!currentCycle) {
+      try {
+        const cycleBig = await contract.cycleActuel(tontineId);
+        currentCycle = Number(cycleBig || 0);
+      } catch (e) {
+        currentCycle = 0;
+      }
+    }
+    if (!currentCycle) currentCycle = 1;
 
     const receipt = await sendTx(
       contract.payContribution(tontineId, currentCycle, resolvedMember, { value: contributionAmount }),
