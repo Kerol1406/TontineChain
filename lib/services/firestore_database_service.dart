@@ -566,6 +566,19 @@ class FirestoreDatabaseService {
     final frequency = (tontine['frequence'] ?? '').toString();
     final baseDate = _parseDateTime(tontine['createdAt']) ?? DateTime.now();
 
+    final cycleDocs = await _tontines
+        .doc(tontineId)
+        .collection('cycles')
+        .get();
+
+    final Map<int, Map<String, dynamic>> cycleById = {};
+    for (final doc in cycleDocs.docs) {
+      final data = doc.data();
+      final cycleId = (data['cycleId'] as num?)?.toInt() ?? int.tryParse(doc.id) ?? 0;
+      if (cycleId <= 0) continue;
+      cycleById[cycleId] = data;
+    }
+
     List<Map<String, dynamic>> normalized = rawCalendar;
     if (normalized.isEmpty) {
       final order = List<String>.from(tontine['ordre'] ?? const []);
@@ -605,9 +618,22 @@ class FirestoreDatabaseService {
 
     return normalized.map((slot) {
       final userId = (slot['userId'] ?? '').toString();
+      final rang = (slot['rang'] as num?)?.toInt() ?? 0;
+      final cycleProjection = cycleById[rang];
+      final cycleStatus = (cycleProjection?['status'] ?? cycleProjection?['statut'] ?? '').toString().toUpperCase();
+      final beneficiaire = (cycleProjection?['beneficiaire'] ?? '').toString();
+      final montantLibere = cycleProjection?['montantLibere'];
+      final received = cycleStatus == 'FINISHED' || cycleStatus == 'DONE' || cycleStatus == 'CLOSED';
+
       return {
         ...slot,
         'displayName': userId.isEmpty ? 'Membre' : (namesByUid[userId] ?? userId),
+        'status': received ? 'RECU' : 'A_VENIR',
+        'statusLabel': received ? 'Reçu' : 'À venir',
+        'isReceived': received,
+        'beneficiaire': beneficiaire.isEmpty ? userId : beneficiaire,
+        'montantLibere': montantLibere,
+        'cycleStatus': cycleStatus,
       };
     }).toList(growable: false);
   }

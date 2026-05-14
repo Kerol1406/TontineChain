@@ -1078,19 +1078,25 @@ class _AllocationTimelineCard extends StatelessWidget {
       final userId = (slot['userId'] ?? '').toString();
       final rang = (slot['rang'] as num?)?.toInt() ?? 0;
       final dateAllocation = slot['dateAllocation'];
+      final isReceived = slot['isReceived'] == true || (slot['status'] ?? '').toString().toUpperCase() == 'RECU';
       final isCurrentUser = displayName.toLowerCase().contains(currentUserFirstName) ||
           userId.toLowerCase() == currentUserFirstName;
 
       final monthLabel = dateAllocation == null ? 'Tour $rang' : _formatAllocationDate(dateAllocation);
+      final statusLabel = isReceived
+          ? 'Reçu'
+          : (slot['statusLabel'] ?? (rang == 1 ? 'Premier tour' : 'Rang $rang')).toString();
 
       return _TimelineItem(
         month: monthLabel,
         name: isCurrentUser ? 'Vous ($displayName)' : displayName,
-        statusLabel: rang == 1 ? 'Premier tour' : 'Rang $rang',
-        progress: rang == 1 ? 1 : 0,
-        color: rang == 1 ? const Color(0xFFEFEDE6) : const Color(0xFFF5F5F3),
-        isPast: rang == 1,
-        isCurrent: rang == 1,
+        statusLabel: statusLabel,
+        progress: isReceived ? 1 : (rang == 1 ? 1 : 0),
+        color: isReceived
+            ? const Color(0xFFEAF5EE)
+            : (rang == 1 ? const Color(0xFFEFEDE6) : const Color(0xFFF5F5F3)),
+        isPast: isReceived || rang == 1,
+        isCurrent: isReceived || rang == 1,
       );
     }).toList(growable: false);
   }
@@ -1112,7 +1118,7 @@ class _TimelineItemRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Color badgeColor = isCurrent
-        ? const Color(0xFFF8D44A)
+      ? (item.statusLabel == 'Reçu' ? const Color(0xFF128A3A) : const Color(0xFFF8D44A))
         : item.progress >= 1
             ? const Color(0xFF5C8C7B)
             : const Color(0xFFB8C0BA);
@@ -1140,11 +1146,13 @@ class _TimelineItemRow extends StatelessWidget {
                   ],
                 ),
                 child: Icon(
-                  isCurrent
+                  item.statusLabel == 'Reçu'
+                    ? Icons.check_circle_rounded
+                    : isCurrent
                       ? Icons.star_rounded
                       : item.progress >= 1
-                          ? Icons.check_rounded
-                          : Icons.circle_outlined,
+                        ? Icons.check_rounded
+                        : Icons.circle_outlined,
                   size: 16,
                   color: Colors.white,
                 ),
@@ -1159,7 +1167,9 @@ class _TimelineItemRow extends StatelessWidget {
             decoration: BoxDecoration(
               color: item.color,
               borderRadius: BorderRadius.circular(16),
-              border: isCurrent
+                border: item.statusLabel == 'Reçu'
+                  ? Border.all(color: const Color(0xFF128A3A), width: 1.6)
+                  : isCurrent
                   ? Border.all(color: const Color(0xFFF8D44A), width: 1.6)
                   : Border.all(color: Colors.transparent),
               boxShadow: isPast
@@ -1184,7 +1194,11 @@ class _TimelineItemRow extends StatelessWidget {
                           fontFamily: 'Plus Jakarta Sans',
                           fontSize: 10,
                           fontWeight: FontWeight.w800,
-                          color: isCurrent ? const Color(0xFF8A6F00) : const Color(0xFFA9B5B0),
+                          color: item.statusLabel == 'Reçu'
+                              ? const Color(0xFF128A3A)
+                              : isCurrent
+                                  ? const Color(0xFF8A6F00)
+                                  : const Color(0xFFA9B5B0),
                           letterSpacing: 0.9,
                         ),
                       ),
@@ -1230,7 +1244,11 @@ class _TimelineItemRow extends StatelessWidget {
                       fontFamily: 'Plus Jakarta Sans',
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
-                      color: isCurrent ? const Color(0xFF8A6F00) : AppColors.textSecondary,
+                      color: item.statusLabel == 'Reçu'
+                          ? const Color(0xFF128A3A)
+                          : isCurrent
+                              ? const Color(0xFF8A6F00)
+                              : AppColors.textSecondary,
                     ),
                   ),
                 ),
