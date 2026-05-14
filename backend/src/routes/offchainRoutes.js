@@ -76,6 +76,80 @@ router.post('/tontines/:tontineId/members/join', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/tontines/:tontineId/pay
+ * Trigger payContribution on-chain using the backend wallet.
+ * Body: { userId, memberWallet?, cycleId? }
+ */
+router.post('/tontines/:tontineId/pay', async (req, res) => {
+  try {
+    const { tontineId } = req.params;
+    const { userId, memberWallet, cycleId = 0 } = req.body || {};
+
+    const contractData = await getContractByTontineId(tontineId);
+    if (!contractData?.contractAddress) {
+      return res.status(404).json({ ok: false, error: 'Contract not found for this tontine' });
+    }
+
+    const { getContract, sendTx } = require('../services/blockchain');
+    const contract = getContract(contractData.contractAddress);
+
+    let resolvedMember = String(memberWallet || '').trim();
+    if (!resolvedMember && userId) {
+      const { getUserProfile } = require('../services/userService');
+      const profile = await getUserProfile(userId);
+      resolvedMember = String(profile?.walletAddress || profile?.wallet || '').trim();
+    }
+
+    if (!resolvedMember || !/^0x[a-fA-F0-9]{40}$/.test(resolvedMember)) {
+      return res.status(400).json({ ok: false, error: 'A valid memberWallet or userId is required' });
+    }
+
+    const tontineInfo = await contract.getTontine(tontineId);
+    const contributionAmount = tontineInfo[1];
+    const currentCycle = Number(cycleId || tontineInfo[3] || 0);
+
+    const receipt = await sendTx(
+      contract.payContribution(tontineId, currentCycle, resolvedMember, { value: contributionAmount }),
+      `payContribution(${tontineId}, cycle=${currentCycle})`
+    );
+
+    try {
+      const { db, admin } = require('../services/firebase');
+      const contributionSnap = await db.collection('contributions')
+        .where('tontineId', '==', tontineId)
+        .where('deleted', '==', false)
+        .where('userId', '==', userId || resolvedMember)
+        .where('cycle', '==', currentCycle)
+        .limit(1)
+        .get();
+
+      if (!contributionSnap.empty) {
+        await contributionSnap.docs[0].ref.update({
+          statut: 'PAYE',
+          txHash: receipt.tx.hash,
+          datePaiement: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+      }
+    } catch (updateError) {
+      console.warn('[api] contribution firestore update skipped:', updateError.message || updateError);
+    }
+
+    return res.status(200).json({
+      ok: true,
+      txHash: receipt.tx.hash,
+      blockNumber: receipt.receipt.blockNumber,
+      cycleId: currentCycle,
+      memberWallet: resolvedMember,
+      contributionAmount: contributionAmount.toString()
+    });
+  } catch (error) {
+    console.error('[api] pay contribution error', error);
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 router.get('/tontines/:tontineId/contract', async (req, res) => {
   try {
     const { tontineId } = req.params;

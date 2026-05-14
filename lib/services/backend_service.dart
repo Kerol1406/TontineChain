@@ -1,6 +1,5 @@
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import '../models/index.dart';
 
 /// Service pour communiquer avec le backend Node.js
 class BackendService {
@@ -241,6 +240,34 @@ class BackendService {
       );
     } catch (e) {
       print('[ERROR] joinTontineMember failed: $e');
+      rethrow;
+    }
+  }
+
+  /// POST /api/tontines/:tontineId/pay
+  Future<Map<String, dynamic>> payContribution(String tontineId, Map<String, dynamic> payload) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/api/tontines/$tontineId/pay'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(payload),
+      );
+
+      final body = response.body.trim();
+      final contentType = response.headers['content-type'] ?? '';
+
+      if (response.statusCode == 200 && body.isNotEmpty) {
+        final decoded = jsonDecode(body);
+        if (decoded is Map<String, dynamic>) {
+          return decoded;
+        }
+      }
+
+      throw Exception(
+        'Erreur paiement on-chain: status=${response.statusCode}, content-type=$contentType, body=${body.substring(0, body.length > 180 ? 180 : body.length)}',
+      );
+    } catch (e) {
+      print('[ERROR] payContribution failed: $e');
       rethrow;
     }
   }

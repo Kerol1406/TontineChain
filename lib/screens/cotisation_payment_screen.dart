@@ -3,6 +3,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 import 'package:tontinechain/constants/app_colors.dart';
 import 'package:tontinechain/models/index.dart';
+import 'package:tontinechain/services/backend_service.dart';
 import 'package:tontinechain/services/auth_state.dart';
 import 'package:tontinechain/services/firestore_database_service.dart';
 import 'package:tontinechain/providers/tontine_provider.dart';
@@ -18,6 +19,7 @@ class CotisationPaymentScreen extends StatefulWidget {
 
 class _CotisationPaymentScreenState extends State<CotisationPaymentScreen> {
   final FirestoreDatabaseService _db = FirestoreDatabaseService.instance;
+  final BackendService _backend = BackendService.instance;
   int _selectedMethod = 0; // 0 = Mobile Money, 1 = Crypto
   String? _selectedMobileProvider; // 'mtn', 'moov', or 'celtis'
   String? _payerPhoneNumber;
@@ -481,6 +483,10 @@ class _CotisationPaymentScreenState extends State<CotisationPaymentScreen> {
     });
 
     try {
+      final payResult = await _backend.payContribution(widget.tontine.id, {
+        'userId': userId,
+      });
+
       await _db.simulateCotisationPayment(
         tontineId: widget.tontine.id,
         userId: userId,
@@ -496,7 +502,7 @@ class _CotisationPaymentScreenState extends State<CotisationPaymentScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Paiement simulé réussi via ${_selectedMethod == 0 ? _getMobileProviderLabel(_selectedMobileProvider ?? 'mtn') : 'Portefeuille Crypto'}.',
+            'Paiement simulé + blockchain réussi via ${_selectedMethod == 0 ? _getMobileProviderLabel(_selectedMobileProvider ?? 'mtn') : 'Portefeuille Crypto'}.',
           ),
           backgroundColor: AppColors.primary,
           behavior: SnackBarBehavior.floating,
@@ -505,6 +511,8 @@ class _CotisationPaymentScreenState extends State<CotisationPaymentScreen> {
           ),
         ),
       );
+
+      debugPrint('payContribution txHash=${payResult['txHash']} block=${payResult['blockNumber']}');
 
       // Rafraîchir les données globales via Provider pour synchroniser tous les écrans
       if (mounted) {
@@ -516,7 +524,7 @@ class _CotisationPaymentScreenState extends State<CotisationPaymentScreen> {
       if (!mounted) return false;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Échec de la simulation: $e'),
+          content: Text('Échec du paiement: $e'),
           behavior: SnackBarBehavior.floating,
         ),
       );
