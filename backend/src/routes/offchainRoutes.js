@@ -51,6 +51,31 @@ router.post('/tontines/deploy', async (req, res) => {
   }
 });
 
+router.post('/tontines/:tontineId/members/join', async (req, res) => {
+  try {
+    const { tontineId } = req.params;
+    const { memberWallet, pseudo = '' } = req.body || {};
+
+    if (!memberWallet) {
+      return res.status(400).json({ ok: false, error: 'memberWallet is required' });
+    }
+
+    const contractData = await getContractByTontineId(tontineId);
+    if (!contractData?.contractAddress) {
+      return res.status(404).json({ ok: false, error: 'Contract not found for this tontine' });
+    }
+
+    const { getContract, sendTx } = require('../services/blockchain');
+    const contract = getContract(contractData.contractAddress);
+    const receipt = await sendTx(contract.joinTontine(tontineId, memberWallet, pseudo), `joinTontine(${tontineId})`);
+
+    return res.status(201).json({ ok: true, result: { txHash: receipt.tx.hash, blockNumber: receipt.receipt.blockNumber } });
+  } catch (error) {
+    console.error('[api] join tontine error', error);
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 router.get('/tontines/:tontineId/contract', async (req, res) => {
   try {
     const { tontineId } = req.params;

@@ -66,6 +66,7 @@ class FirestoreDatabaseService {
     double solde = 0.0,
     List<String> tontines = const [],
     bool deleted = false,
+    String? walletAddress,
   }) async {
     await _users.doc(uid).set({
       'uid': uid,
@@ -86,6 +87,7 @@ class FirestoreDatabaseService {
       'solde': solde, // solde du portefeuille
       'tontines': tontines, // liste des tontineId
       'deleted': deleted,
+      if (walletAddress != null) 'walletAddress': walletAddress,
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
@@ -1328,6 +1330,23 @@ class FirestoreDatabaseService {
     });
 
     if (tontineId.isNotEmpty && userId.isNotEmpty) {
+      String memberWallet = userId;
+      try {
+        final userProfile = await BackendService.instance.getUserProfile(userId);
+        memberWallet = (userProfile['profile']?['walletAddress'] ?? userProfile['profile']?['wallet'] ?? userId).toString();
+      } catch (_) {
+        memberWallet = userId;
+      }
+
+      try {
+        await BackendService.instance.joinTontineMember(tontineId, {
+          'memberWallet': memberWallet,
+          'pseudo': (data['pseudo'] ?? '').toString(),
+        });
+      } catch (e) {
+        print('[WARN] on-chain join failed for $tontineId / $userId: $e');
+      }
+
       await addMemberToTontine(tontineId, userId);
       await addTontineToUser(userId, tontineId);
       await addNotification(

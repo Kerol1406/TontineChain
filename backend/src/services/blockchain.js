@@ -1,9 +1,10 @@
 const { ethers } = require('ethers');
 const { config } = require('./config');
-const tontineAbi = require('../abi/TontineGroup.abi.json');
+const { compileTontineManager } = require('./contractCompiler');
 
 const provider = new ethers.JsonRpcProvider(config.rpcUrl);
 const wallet = new ethers.Wallet(config.backendPrivateKey, provider);
+const { abi: tontineAbi } = compileTontineManager();
 
 function getContract(contractAddress) {
   return new ethers.Contract(contractAddress, tontineAbi, wallet);

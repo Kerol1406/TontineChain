@@ -11,15 +11,16 @@ async function attachListenersForContract(contractMeta) {
 
   console.log(`[listener] attaching ${tontineId} @ ${contractAddress}`);
 
-  contract.on('DemandAdhesionEnvoyee', async (wallet, pseudo, timestamp, event) => {
+  contract.on('DemandAdhesionEnvoyee', async (eventTontineId, wallet, pseudo, timestamp, event) => {
     const args = {
+      tontineId: eventTontineId,
       wallet: wallet.toLowerCase(),
       pseudo,
       timestamp: timestamp.toString()
     };
 
     await persistChainEvent({
-      tontineId,
+      tontineId: eventTontineId,
       contractAddress,
       network,
       eventName: 'DemandAdhesionEnvoyee',
@@ -29,14 +30,14 @@ async function attachListenersForContract(contractMeta) {
     });
 
     await updateMemberProjection({
-      tontineId,
+      tontineId: eventTontineId,
       wallet,
       patch: { pseudo, status: 'REQUESTED' }
     });
 
-    await ensureGlobalScore(wallet, { pseudo, source: 'DemandAdhesionEnvoyee', tontineId });
+    await ensureGlobalScore(wallet, { pseudo, source: 'DemandAdhesionEnvoyee', tontineId: eventTontineId });
     await recordOffchainHistory({
-      tontineId,
+      tontineId: eventTontineId,
       type: 'member.requested',
       title: 'Demande d’adhésion reçue',
       message: `${wallet.toLowerCase()} a demandé à rejoindre la tontine`,
@@ -45,15 +46,16 @@ async function attachListenersForContract(contractMeta) {
     });
   });
 
-  contract.on('GarantieDeposeee', async (wallet, montant, timestamp, event) => {
+  contract.on('GarantieDeposeee', async (eventTontineId, wallet, montant, timestamp, event) => {
     const args = {
+      tontineId: eventTontineId,
       wallet: wallet.toLowerCase(),
       montant: montant.toString(),
       timestamp: timestamp.toString()
     };
 
     await persistChainEvent({
-      tontineId,
+      tontineId: eventTontineId,
       contractAddress,
       network,
       eventName: 'GarantieDeposeee',
@@ -63,13 +65,13 @@ async function attachListenersForContract(contractMeta) {
     });
 
     await updateMemberProjection({
-      tontineId,
+      tontineId: eventTontineId,
       wallet,
       patch: { status: 'ACTIVE', garantieBloquee: montant.toString() }
     });
 
     await recordOffchainHistory({
-      tontineId,
+      tontineId: eventTontineId,
       type: 'member.guarantee_deposited',
       title: 'Garantie déposée',
       message: `${wallet.toLowerCase()} a déposé une garantie`,
@@ -78,8 +80,9 @@ async function attachListenersForContract(contractMeta) {
     });
   });
 
-  contract.on('CotisationPayee', async (wallet, cycleId, montant, timestamp, event) => {
+  contract.on('CotisationPayee', async (eventTontineId, wallet, cycleId, montant, timestamp, event) => {
     const args = {
+      tontineId: eventTontineId,
       wallet: wallet.toLowerCase(),
       cycleId: cycleId.toString(),
       montant: montant.toString(),
@@ -87,7 +90,7 @@ async function attachListenersForContract(contractMeta) {
     };
 
     await persistChainEvent({
-      tontineId,
+      tontineId: eventTontineId,
       contractAddress,
       network,
       eventName: 'CotisationPayee',
@@ -97,7 +100,7 @@ async function attachListenersForContract(contractMeta) {
     });
 
     await updateCycleProjection({
-      tontineId,
+      tontineId: eventTontineId,
       cycleId,
       patch: {
         lastContributionAt: new Date().toISOString(),
@@ -105,18 +108,19 @@ async function attachListenersForContract(contractMeta) {
       }
     });
 
-    await recordOnTimePayment(tontineId, wallet, { cycleId: cycleId.toString(), montant: montant.toString() });
+    await recordOnTimePayment(eventTontineId, wallet, { cycleId: cycleId.toString(), montant: montant.toString() });
   });
 
-  contract.on('RetardDetecte', async (wallet, cycleId, timestamp, event) => {
+  contract.on('RetardDetecte', async (eventTontineId, wallet, cycleId, timestamp, event) => {
     const args = {
+      tontineId: eventTontineId,
       wallet: wallet.toLowerCase(),
       cycleId: cycleId.toString(),
       timestamp: timestamp.toString()
     };
 
     await persistChainEvent({
-      tontineId,
+      tontineId: eventTontineId,
       contractAddress,
       network,
       eventName: 'RetardDetecte',
@@ -126,25 +130,25 @@ async function attachListenersForContract(contractMeta) {
     });
 
     await updateMemberProjection({
-      tontineId,
+      tontineId: eventTontineId,
       wallet,
       patch: { status: 'LATE' }
     });
 
     // Record late payment AND trigger score drop + reorder in all eligible tontines
-    await recordLatePayment(tontineId, wallet, { 
+    await recordLatePayment(eventTontineId, wallet, { 
       cycleId: cycleId.toString(),
       source: 'RetardDetecte_event'
     });
 
     // Send alert notification to the member
-    await queueLatePaymentAlert(tontineId, wallet, {
+    await queueLatePaymentAlert(eventTontineId, wallet, {
       cycleId: cycleId.toString(),
       blockNumber: event.log.blockNumber.toString()
     });
 
     await recordOffchainHistory({
-      tontineId,
+      tontineId: eventTontineId,
       type: 'payment.late_detected',
       title: 'Retard de paiement détecté',
       message: `${wallet.toLowerCase()} a un retard de paiement au cycle ${cycleId}`,
@@ -158,9 +162,10 @@ async function attachListenersForContract(contractMeta) {
 
   contract.on('AllocationDistribuee', async (...raw) => {
     const event = raw[raw.length - 1];
-    const [beneficiaire, cycleId, montantTotal, montantLibere, montantReserve, scoreConfiance, timestamp] = raw;
+    const [eventTontineId, beneficiaire, cycleId, montantTotal, montantLibere, montantReserve, scoreConfiance, timestamp] = raw;
 
     const args = {
+      tontineId: eventTontineId,
       beneficiaire: beneficiaire.toLowerCase(),
       cycleId: cycleId.toString(),
       montantTotal: montantTotal.toString(),
@@ -171,7 +176,7 @@ async function attachListenersForContract(contractMeta) {
     };
 
     await persistChainEvent({
-      tontineId,
+      tontineId: eventTontineId,
       contractAddress,
       network,
       eventName: 'AllocationDistribuee',
@@ -181,7 +186,7 @@ async function attachListenersForContract(contractMeta) {
     });
 
     await updateMemberProjection({
-      tontineId,
+      tontineId: eventTontineId,
       wallet: beneficiaire,
       patch: {
         aRecu: true,
@@ -191,7 +196,7 @@ async function attachListenersForContract(contractMeta) {
     });
 
     await updateCycleProjection({
-      tontineId,
+      tontineId: eventTontineId,
       cycleId,
       patch: {
         status: 'FINISHED',
@@ -203,7 +208,8 @@ async function attachListenersForContract(contractMeta) {
       }
     });
 
-    await recordAllocationReceived(tontineId, beneficiaire, {
+    await recordAllocationReceived(eventTontineId, beneficiaire, {
+      tontineId: eventTontineId,
       cycleId: cycleId.toString(),
       montantTotal: montantTotal.toString(),
       montantLibere: montantLibere.toString(),

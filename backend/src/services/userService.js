@@ -2,6 +2,7 @@ const { db, admin } = require('./firebase');
 const { getContract } = require('./blockchain');
 const { getContractByTontineId } = require('./contractRegistry');
 const { getGlobalScore } = require('./scoreService');
+const { createCustodialWallet } = require('./walletService');
 
 function normalizeWallet(wallet) {
   return String(wallet || '').toLowerCase();
@@ -39,13 +40,13 @@ async function getOnChainCycleInfo(tontineId) {
   if (!contractMeta?.contractAddress) return null;
 
   const contract = getContract(contractMeta.contractAddress);
-  const currentCycle = await contract.cycleActuel();
+  const currentCycle = await contract.cycleActuel(tontineId);
   const cycleIndex = Number(currentCycle);
   if (Number.isNaN(cycleIndex)) return null;
 
   let cycleInfo;
   try {
-    cycleInfo = await contract.cycles(cycleIndex);
+    cycleInfo = await contract.cycles(tontineId, cycleIndex);
   } catch (error) {
     return null;
   }
@@ -83,6 +84,8 @@ async function getUserProfile(wallet) {
 
   return {
     wallet: normalizedWallet,
+    walletAddress: profileData.walletAddress || null,
+    walletType: profileData.walletType || null,
     pseudo: profileData.pseudo || null,
     email: profileData.email || null,
     phone: profileData.phone || null,
@@ -110,8 +113,10 @@ async function updateUserProfile(wallet, profileData = {}) {
   // Allow updating these fields
   const allowedFields = ['pseudo', 'email', 'phone', 'bio', 'avatar'];
   for (const field of allowedFields) {
-    if (profileData[field] !== undefined) {
-      updateData[field] = String(profileData[field]).trim();
+    if (profileData[field] !== undefined && profileData[field] !== null) {
+      updateData[field] = typeof profileData[field] === 'string'
+        ? profileData[field].trim()
+        : profileData[field];
     }
   }
 
@@ -120,6 +125,21 @@ async function updateUserProfile(wallet, profileData = {}) {
   if (!existingSnap.exists) {
     updateData.createdAt = now;
     updateData.verified = false;
+    const custodialWallet = createCustodialWallet();
+    updateData.walletAddress = custodialWallet.walletAddress;
+    updateData.walletType = 'custodial';
+    updateData.walletEncryptedPrivateKey = custodialWallet.walletEncryptedPrivateKey;
+    updateData.walletEncryptedIv = custodialWallet.walletEncryptedIv;
+    updateData.walletEncryptedAuthTag = custodialWallet.walletEncryptedAuthTag;
+    updateData.walletCreatedAt = now;
+  } else if (!existingSnap.data()?.walletAddress) {
+    const custodialWallet = createCustodialWallet();
+    updateData.walletAddress = custodialWallet.walletAddress;
+    updateData.walletType = 'custodial';
+    updateData.walletEncryptedPrivateKey = custodialWallet.walletEncryptedPrivateKey;
+    updateData.walletEncryptedIv = custodialWallet.walletEncryptedIv;
+    updateData.walletEncryptedAuthTag = custodialWallet.walletEncryptedAuthTag;
+    updateData.walletCreatedAt = now;
   }
 
   await db.collection('users').doc(normalizedWallet).set(updateData, { merge: true });

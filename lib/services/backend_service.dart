@@ -43,7 +43,7 @@ class BackendService {
   }
 
   /// PUT /api/users/:userId/profile
-  Future<void> updateUserProfile(String userId, Map<String, dynamic> data) async {
+  Future<Map<String, dynamic>> updateUserProfile(String userId, Map<String, dynamic> data) async {
     try {
       final response = await http.put(
         Uri.parse('$_baseUrl/api/users/$userId/profile'),
@@ -54,6 +54,12 @@ class BackendService {
       if (response.statusCode != 200) {
         throw Exception('Erreur: ${response.statusCode} - ${response.body}');
       }
+
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      return const {};
     } catch (e) {
       print('[ERROR] updateUserProfile failed: $e');
       rethrow;
@@ -207,6 +213,34 @@ class BackendService {
       );
     } catch (e) {
       print('[ERROR] deployTontineContract failed: $e');
+      rethrow;
+    }
+  }
+
+  /// POST /api/tontines/:tontineId/members/join
+  Future<Map<String, dynamic>> joinTontineMember(String tontineId, Map<String, dynamic> payload) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/api/tontines/$tontineId/members/join'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(payload),
+      );
+
+      final body = response.body.trim();
+      final contentType = response.headers['content-type'] ?? '';
+
+      if ((response.statusCode == 200 || response.statusCode == 201) && body.isNotEmpty) {
+        final decoded = jsonDecode(body);
+        if (decoded is Map<String, dynamic>) {
+          return decoded;
+        }
+      }
+
+      throw Exception(
+        'Erreur adhésion tontine: status=${response.statusCode}, content-type=$contentType, body=${body.substring(0, body.length > 180 ? 180 : body.length)}',
+      );
+    } catch (e) {
+      print('[ERROR] joinTontineMember failed: $e');
       rethrow;
     }
   }

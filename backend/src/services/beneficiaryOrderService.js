@@ -86,7 +86,7 @@ async function reorderBeneficiaries(tontineId, { contractAddress, contract } = {
   if ((contractAddress || contract) && persisted.length) {
     const instance = contract || getContract(contractAddress);
     const addresses = persisted.map((member) => member.wallet);
-    await sendTx(instance.setOrdreBeneficiaires(addresses), `setOrdreBeneficiaires(${tontineId})`);
+    await sendTx(instance.setOrdreBeneficiaires(tontineId, addresses), `setOrdreBeneficiaires(${tontineId})`);
   }
 
   return persisted;

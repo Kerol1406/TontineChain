@@ -3,6 +3,7 @@ import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
 
+import 'backend_service.dart';
 import 'firestore_database_service.dart';
 
 /// Service d'authentification Firebase
@@ -69,6 +70,17 @@ class FirebaseAuthService {
       // Normaliser le numéro avant de le sauvegarder (ajoute +229 si nécessaire)
       final normalizedPhone = _normalizePhone(phone);
 
+      final backendProfile = await BackendService.instance.updateUserProfile(user.uid, {
+        'pseudo': '$firstName $lastName'.trim(),
+        'email': authEmail,
+        'phone': normalizedPhone,
+        'bio': '',
+        'avatar': null,
+      });
+
+      final walletAddress = (backendProfile['profile']?['walletAddress'] ?? backendProfile['profile']?['wallet'] ?? '')
+          .toString();
+
       String? identityDocumentUrl;
       if (identityDocumentPath != null && identityDocumentPath.isNotEmpty) {
         identityDocumentUrl = await FirestoreDatabaseService.instance.uploadIdentityDocument(
@@ -86,6 +98,7 @@ class FirebaseAuthService {
         identityDocumentUrl: identityDocumentUrl,
         kycStatus: 'PENDING',
         isLookingForTontine: true,
+        walletAddress: walletAddress.isNotEmpty ? walletAddress : null,
       );
 
       // Retourner les données utilisateur

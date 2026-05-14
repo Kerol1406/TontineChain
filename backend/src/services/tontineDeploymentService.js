@@ -1,6 +1,3 @@
-const fs = require('fs');
-const path = require('path');
-const solc = require('solc');
 const { ethers } = require('ethers');
 
 const { wallet } = require('./blockchain');
@@ -8,64 +5,11 @@ const { config } = require('./config');
 const { registerContract } = require('./contractRegistry');
 const { db, admin } = require('./firebase');
 
-const CONTRACT_SOURCE_PATH = path.resolve(__dirname, '../../../hardhat/contracts/TontineGroup.sol');
-const COMPILER_VERSION = '0.8.20';
-
-let cachedCompilation = null;
-
 function normalizeFrequencyIndex(value) {
   const normalized = String(value || '').trim().toLowerCase();
   if (normalized === '0' || normalized.includes('journalier') || normalized.includes('daily')) return 0;
   if (normalized === '1' || normalized.includes('hebdo') || normalized.includes('week')) return 1;
   return 2;
-}
-
-function compileContract() {
-  if (cachedCompilation) {
-    return cachedCompilation;
-  }
-
-  const source = fs.readFileSync(CONTRACT_SOURCE_PATH, 'utf8');
-  const input = {
-    language: 'Solidity',
-    sources: {
-      'TontineGroup.sol': {
-        content: source
-      }
-    },
-    settings: {
-      optimizer: {
-        enabled: true,
-        runs: 50
-      },
-      viaIR: true,
-      outputSelection: {
-        '*': {
-          '*': ['abi', 'evm.bytecode.object']
-        }
-      }
-    }
-  };
-
-  const output = JSON.parse(solc.compile(JSON.stringify(input)));
-  if (output.errors?.length) {
-    const fatalErrors = output.errors.filter((entry) => entry.severity === 'error');
-    if (fatalErrors.length) {
-      throw new Error(fatalErrors.map((entry) => entry.formattedMessage).join('\n'));
-    }
-  }
-
-  const contractOutput = output.contracts?.['TontineGroup.sol']?.TontineGroup;
-  if (!contractOutput) {
-    throw new Error('Unable to compile TontineGroup contract');
-  }
-
-  cachedCompilation = {
-    abi: contractOutput.abi,
-    bytecode: `0x${contractOutput.evm.bytecode.object}`
-  };
-
-  return cachedCompilation;
 }
 
 async function deployTontineContract({
@@ -86,13 +30,36 @@ async function deployTontineContract({
   if (maxMembers == null) throw new Error('maxMembers is required');
   if (!creatorId) throw new Error('creatorId is required');
 
-  const { abi, bytecode } = compileContract();
-  const factory = new ethers.ContractFactory(abi, bytecode, wallet);
+  if (!config.centralContractAddress) {
+    throw new Error('Missing CENTRAL_CONTRACT_ADDRESS env var. Deploy TontineManager.sol once and set this address before creating tontines.');
+  }
+
+  let resolvedCreatorWallet = String(creatorWallet || '').trim();
+  if (!ethers.isAddress(resolvedCreatorWallet)) {
+    try {
+      const { getUserProfile } = require('./userService');
+      const creatorProfile = await getUserProfile(creatorId);
+      resolvedCreatorWallet = String(creatorProfile?.walletAddress || creatorProfile?.wallet || '').trim();
+    } catch (error) {
+      resolvedCreatorWallet = '';
+    }
+  }
+
+  if (!ethers.isAddress(resolvedCreatorWallet)) {
+    throw new Error(`Unable to resolve a valid blockchain wallet address for creatorId=${creatorId}`);
+  }
+
+  const factory = new ethers.Contract(config.centralContractAddress, [
+    'function createTontine(string tontineId, string name, uint256 contributionAmount, uint8 frequency, uint256 maxMembers, string pseudo, bool callMembersEnabled, bool guaranteeMode, address creator) external returns (uint256)',
+    'function getTontine(string tontineId) external view returns (string name, uint256 contributionAmount, uint256 maxMembers, uint256 currentCycle, bool started, bool finished, address creator, uint256 totalPool, uint256 memberCount, uint8 frequency)'
+  ], wallet);
   const frequencyIndex = normalizeFrequencyIndex(frequency);
   const monthlyAmountWei = BigInt(Math.round(Number(monthlyAmount)));
   const pseudo = String(creatorPseudo || name || 'Createur').trim() || 'Createur';
   const backendAddress = wallet.address;
-  const contract = await factory.deploy(
+
+  const createTxRequest = await factory.createTontine.populateTransaction(
+    tontineId,
     name,
     monthlyAmountWei,
     frequencyIndex,
@@ -100,17 +67,44 @@ async function deployTontineContract({
     pseudo,
     Boolean(callMembersEnabled),
     false,
-    backendAddress
+    resolvedCreatorWallet
+  );
+  createTxRequest.from = backendAddress;
+
+  const estimatedGas = await wallet.provider.estimateGas(createTxRequest);
+  const feeData = await wallet.provider.getFeeData();
+  const gasPrice = feeData.gasPrice ?? feeData.maxFeePerGas ?? feeData.maxPriorityFeePerGas;
+  const estimatedCost = gasPrice ? estimatedGas * gasPrice : null;
+  const balance = await wallet.provider.getBalance(backendAddress);
+
+  if (estimatedCost && balance < estimatedCost) {
+    throw new Error(
+      `Solde insuffisant pour créer la tontine avec le wallet backend ${backendAddress}. ` +
+      `Balance actuelle: ${balance.toString()} wei. ` +
+      `Coût estimé: ${estimatedCost.toString()} wei. ` +
+      `Ajoute du MATIC testnet sur ce wallet puis réessaie.`
+    );
+  }
+
+  const tx = await factory.createTontine(
+    tontineId,
+    name,
+    monthlyAmountWei,
+    frequencyIndex,
+    Number(maxMembers),
+    pseudo,
+    Boolean(callMembersEnabled),
+    false,
+    resolvedCreatorWallet
   );
 
-  await contract.waitForDeployment();
-  const contractAddress = contract.target || (await contract.getAddress());
-  const deploymentTransaction = contract.deploymentTransaction();
+  const receipt = await tx.wait();
+  const contractAddress = config.centralContractAddress;
 
   await registerContract({
     tontineId,
     contractAddress,
-    creatorWallet: creatorWallet || creatorId,
+    creatorWallet: resolvedCreatorWallet,
     backendAddress,
     network: config.networkName,
     callMembersEnabled: Boolean(callMembersEnabled),
@@ -121,7 +115,7 @@ async function deployTontineContract({
     {
       tontineId,
       contractAddress: contractAddress.toLowerCase(),
-      contractTransactionHash: deploymentTransaction?.hash || null,
+      contractTransactionHash: receipt?.hash || null,
       blockchainNetwork: config.networkName,
       deploymentStatus: 'DEPLOYED',
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -133,7 +127,7 @@ async function deployTontineContract({
   return {
     tontineId,
     contractAddress,
-    contractTransactionHash: deploymentTransaction?.hash || null,
+    contractTransactionHash: receipt?.hash || null,
     network: config.networkName,
     backendAddress
   };
@@ -141,6 +135,5 @@ async function deployTontineContract({
 
 module.exports = {
   deployTontineContract,
-  normalizeFrequencyIndex,
-  compileContract
+  normalizeFrequencyIndex
 };

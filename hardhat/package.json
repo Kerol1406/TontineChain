@@ -5,6 +5,7 @@
   "scripts": {
     "compile": "hardhat compile",
     "deploy": "hardhat run scripts/deploy.js",
+    "deploy:manager": "hardhat run scripts/deployManager.js",
     "test": "hardhat test"
   },
   "devDependencies": {

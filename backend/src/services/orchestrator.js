@@ -34,14 +34,14 @@ async function orchestrateCurrentCycle(tontineId) {
     payload: { score, beneficiary: currentBeneficiary?.wallet || null }
   });
 
-  await sendTx(contract.verifyPaymentsAndHandleDefaults(), 'verifyPaymentsAndHandleDefaults');
-  await sendTx(contract.distributeAllocation(score), `distributeAllocation(score=${score})`);
+  await sendTx(contract.verifyPaymentsAndHandleDefaults(tontineId), `verifyPaymentsAndHandleDefaults(${tontineId})`);
+  await sendTx(contract.distributeAllocation(tontineId, score), `distributeAllocation(${tontineId}, score=${score})`);
 
   if (currentBeneficiary?.wallet) {
     await queueAllocationReadyAlert(tontineId, currentBeneficiary.wallet, { score, contractAddress: contractMeta.contractAddress });
   }
 
-  const currentCycle = await contract.cycleActuel();
+  const currentCycle = await contract.cycleActuel(tontineId);
 
   return {
     tontineId,

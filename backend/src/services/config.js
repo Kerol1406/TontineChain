@@ -13,9 +13,11 @@ const config = {
   networkName: process.env.NETWORK_NAME || 'polygon-amoy',
   rpcUrl: requireEnv('RPC_URL'),
   backendPrivateKey: requireEnv('BACKEND_PRIVATE_KEY'),
+  centralContractAddress: (process.env.CENTRAL_CONTRACT_ADDRESS || '').trim(),
   firebaseProjectId: requireEnv('FIREBASE_PROJECT_ID'),
   firebaseClientEmail: requireEnv('FIREBASE_CLIENT_EMAIL'),
   firebasePrivateKey: requireEnv('FIREBASE_PRIVATE_KEY').replace(/\\n/g, '\n'),
+  walletEncryptionKey: (process.env.WALLET_ENCRYPTION_KEY || '').trim(),
   defaultScore: Number(process.env.DEFAULT_SCORE || 40)
 };
 
