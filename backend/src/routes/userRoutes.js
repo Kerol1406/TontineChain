@@ -1,8 +1,7 @@
 const express = require('express');
-const admin = require('firebase-admin');
+const { db, admin } = require('../services/firebase');
 const { getUserProfile, updateUserProfile, getUserTontines, getUserGlobalScore, getUserStats } = require('../services/userService');
 const { createCustodialWallet } = require('../services/walletService');
-const { db } = require('../config');
 
 const router = express.Router();
 
