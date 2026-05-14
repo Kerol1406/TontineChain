@@ -96,9 +96,21 @@ router.post('/tontines/:tontineId/pay', async (req, res) => {
 
     let resolvedMember = String(memberWallet || '').trim();
     if (!resolvedMember && userId) {
-      const { getUserProfile } = require('../services/userService');
-      const profile = await getUserProfile(userId);
-      resolvedMember = String(profile?.walletAddress || profile?.wallet || '').trim();
+      const { db } = require('../services/firebase');
+
+      // Firebase UID is not a wallet address; look up the exact user document id first.
+      const exactSnap = await db.collection('users').doc(String(userId).trim()).get();
+      if (exactSnap.exists) {
+        const profile = exactSnap.data() || {};
+        resolvedMember = String(profile.walletAddress || profile.wallet || '').trim();
+      }
+
+      // Fallback: if a wallet-like identifier was passed as userId, try the existing profile helper.
+      if (!resolvedMember) {
+        const { getUserProfile } = require('../services/userService');
+        const profile = await getUserProfile(userId);
+        resolvedMember = String(profile?.walletAddress || profile?.wallet || '').trim();
+      }
     }
 
     if (!resolvedMember || !/^0x[a-fA-F0-9]{40}$/.test(resolvedMember)) {
