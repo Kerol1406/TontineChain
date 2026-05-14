@@ -68,7 +68,7 @@ class TontineDetailsScreen extends StatefulWidget {
   State<TontineDetailsScreen> createState() => _TontineDetailsScreenState();
 }
 
-class _TontineDetailsScreenState extends State<TontineDetailsScreen> {
+class _TontineDetailsScreenState extends State<TontineDetailsScreen> with WidgetsBindingObserver {
   final FirestoreDatabaseService _db = FirestoreDatabaseService.instance;
   late Future<List<Map<String, dynamic>>> _membersFuture;
   late Future<List<Map<String, dynamic>>> _allocationFuture;
@@ -88,8 +88,26 @@ class _TontineDetailsScreenState extends State<TontineDetailsScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _membersFuture = _loadMembers();
     _allocationFuture = _db.getAllocationCalendar(widget.tontine.id);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Recharger les données quand l'app reprend au premier plan
+    if (state == AppLifecycleState.resumed && mounted) {
+      setState(() {
+        _membersFuture = _loadMembers();
+        _allocationFuture = _db.getAllocationCalendar(widget.tontine.id);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   Future<List<Map<String, dynamic>>> _loadMembers() async {
