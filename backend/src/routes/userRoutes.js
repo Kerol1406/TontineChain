@@ -1,5 +1,8 @@
 const express = require('express');
+const admin = require('firebase-admin');
 const { getUserProfile, updateUserProfile, getUserTontines, getUserGlobalScore, getUserStats } = require('../services/userService');
+const { createCustodialWallet } = require('../services/walletService');
+const { db } = require('../config');
 
 const router = express.Router();
 
@@ -46,6 +49,67 @@ router.post('/users/:wallet/profile', async (req, res) => {
     return res.status(200).json({ ok: true, profile: updatedProfile });
   } catch (error) {
     console.error('[userRoutes] update profile error:', error);
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+/**
+ * PUT /api/users/:userId/profile
+ * Create or update user profile (Firebase UID version)
+ * Body: { pseudo, email, phone, bio, avatar }
+ */
+router.put('/users/:userId/profile', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { pseudo, email, phone, bio, avatar } = req.body;
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    const updateData = {
+      pseudo: pseudo?.trim() || '',
+      email: email?.trim() || '',
+      phone: phone?.trim() || '',
+      bio: bio?.trim() || '',
+      avatar: avatar || null,
+      updatedAt: now
+    };
+
+    // Check if user doc exists
+    const userRef = db.collection('users').doc(userId);
+    const existingSnap = await userRef.get();
+
+    if (!existingSnap.exists) {
+      // First creation: add createdAt and create custodial wallet
+      updateData.createdAt = now;
+      updateData.verified = false;
+      updateData.firebaseUid = userId;
+      
+      const custodialWallet = createCustodialWallet();
+      updateData.walletAddress = custodialWallet.walletAddress;
+      updateData.walletType = 'custodial';
+      updateData.walletEncryptedPrivateKey = custodialWallet.walletEncryptedPrivateKey;
+      updateData.walletEncryptedIv = custodialWallet.walletEncryptedIv;
+      updateData.walletEncryptedAuthTag = custodialWallet.walletEncryptedAuthTag;
+      updateData.walletCreatedAt = now;
+    } else if (!existingSnap.data()?.walletAddress) {
+      // Existing user but no wallet: create one
+      const custodialWallet = createCustodialWallet();
+      updateData.walletAddress = custodialWallet.walletAddress;
+      updateData.walletType = 'custodial';
+      updateData.walletEncryptedPrivateKey = custodialWallet.walletEncryptedPrivateKey;
+      updateData.walletEncryptedIv = custodialWallet.walletEncryptedIv;
+      updateData.walletEncryptedAuthTag = custodialWallet.walletEncryptedAuthTag;
+      updateData.walletCreatedAt = now;
+    }
+
+    await userRef.set(updateData, { merge: true });
+
+    const updatedDoc = await userRef.get();
+    const profile = updatedDoc.data();
+
+    return res.status(200).json({ ok: true, profile });
+  } catch (error) {
+    console.error('[userRoutes] PUT update profile error:', error);
     return res.status(500).json({ ok: false, error: error.message });
   }
 });
