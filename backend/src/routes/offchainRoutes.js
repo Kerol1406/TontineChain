@@ -159,13 +159,26 @@ router.post('/tontines/:tontineId/pay', async (req, res) => {
       console.warn('[api] contribution firestore update skipped:', updateError.message || updateError);
     }
 
+    let orchestration = null;
+    try {
+      const { orchestrateCurrentCycle } = require('../services/orchestrator');
+      orchestration = await orchestrateCurrentCycle(tontineId);
+    } catch (orchestrationError) {
+      console.warn('[api] post-payment orchestration skipped:', orchestrationError.message || orchestrationError);
+      orchestration = {
+        ok: false,
+        error: orchestrationError.message || String(orchestrationError)
+      };
+    }
+
     return res.status(200).json({
       ok: true,
       txHash: receipt.tx.hash,
       blockNumber: receipt.receipt.blockNumber,
       cycleId: currentCycle,
       memberWallet: resolvedMember,
-      contributionAmount: contributionAmount.toString()
+      contributionAmount: contributionAmount.toString(),
+      orchestration
     });
   } catch (error) {
     console.error('[api] pay contribution error', error);

@@ -1,9 +1,77 @@
 const { config } = require('../services/config');
 const { getContract } = require('../services/blockchain');
+const { db, admin } = require('../services/firebase');
 const { listActiveContracts } = require('../services/contractRegistry');
 const { persistChainEvent, updateMemberProjection, updateCycleProjection, recordOffchainHistory } = require('../services/eventSync');
 const { ensureGlobalScore, recordOnTimePayment, recordLatePayment, recordAllocationReceived } = require('../services/scoreService');
 const { queueLatePaymentAlert } = require('../services/notificationService');
+
+async function findUserDocByWallet(wallet) {
+  const target = String(wallet || '').trim();
+  if (!target) return null;
+
+  const candidates = Array.from(new Set([target, target.toLowerCase(), target.toUpperCase()]));
+  const fields = ['walletAddress', 'wallet'];
+
+  for (const field of fields) {
+    for (const candidate of candidates) {
+      const snap = await db.collection('users').where(field, '==', candidate).limit(1).get();
+      if (!snap.empty) return snap.docs[0];
+    }
+  }
+
+  const fallback = await db.collection('users').limit(500).get();
+  const lowerTarget = target.toLowerCase();
+  for (const doc of fallback.docs) {
+    const data = doc.data() || {};
+    const rawWallet = String(data.walletAddress || data.wallet || '').toLowerCase();
+    if (rawWallet && rawWallet === lowerTarget) return doc;
+  }
+
+  return null;
+}
+
+async function creditBeneficiaryWallet({ tontineId, beneficiaryWallet, montantLibere, txHash, cycleId }) {
+  const amount = Number(montantLibere || 0);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { credited: false, reason: 'NO_AMOUNT' };
+  }
+
+  const userDoc = await findUserDocByWallet(beneficiaryWallet);
+  if (!userDoc) {
+    return { credited: false, reason: 'USER_NOT_FOUND' };
+  }
+
+  const userData = userDoc.data() || {};
+  const currentSolde = Number(userData.solde || 0);
+  const safeCurrentSolde = Number.isFinite(currentSolde) ? currentSolde : 0;
+  const newSolde = safeCurrentSolde + amount;
+
+  await userDoc.ref.update({
+    solde: newSolde,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+  });
+
+  await db.collection('transactions').add({
+    type: 'GAIN',
+    tontineId,
+    userId: userDoc.id,
+    toUserId: userDoc.id,
+    montant: amount,
+    description: `Distribution cagnotte cycle ${cycleId}`,
+    blockchainHash: txHash || null,
+    deleted: false,
+    date: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+  });
+
+  return {
+    credited: true,
+    userId: userDoc.id,
+    previousSolde: safeCurrentSolde,
+    newSolde
+  };
+}
 
 async function attachListenersForContract(contractMeta) {
   const { tontineId, contractAddress, network } = contractMeta;
@@ -216,6 +284,21 @@ async function attachListenersForContract(contractMeta) {
       montantReserve: montantReserve.toString(),
       scoreConfiance: Number(scoreConfiance)
     });
+
+    const creditResult = await creditBeneficiaryWallet({
+      tontineId: eventTontineId,
+      beneficiaryWallet: beneficiaire,
+      montantLibere: montantLibere.toString(),
+      txHash: event.log.transactionHash,
+      cycleId: cycleId.toString()
+    });
+
+    if (!creditResult.credited) {
+      console.warn(
+        `[listener] wallet credit skipped for ${beneficiaire.toLowerCase()} ` +
+        `(${creditResult.reason}) on tontine ${eventTontineId}`
+      );
+    }
   });
 }
 
