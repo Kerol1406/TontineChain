@@ -570,33 +570,48 @@ class _ContratSmartScreenState extends State<ContratSmartScreen> {
             final contractAddress = snapshot.data;
             final isReady = contractAddress != null && contractAddress.isNotEmpty;
 
-            return SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton.icon(
-                onPressed: isReady
-                    ? () => _openPolygonScan(contractAddress)
-                    : null,
-                icon: const Icon(Icons.open_in_new_rounded, size: 18),
-                label: Text(
-                  isReady ? 'Explorer sur PolygonScan' : 'Chargement du contrat...',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontFamily: 'Plus Jakarta Sans', fontSize: 14,
-                    fontWeight: FontWeight.w700,
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton.icon(
+                    onPressed: isReady ? () => _openPolygonScan(contractAddress) : null,
+                    icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                    label: Text(
+                      isReady ? 'Explorer sur PolygonScan' : 'Chargement du contrat...',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: 'Plus Jakarta Sans',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.45),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
                   ),
                 ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.45),
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                if (isReady) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    contractAddress,
+                    style: TextStyle(
+                      fontFamily: 'Plus Jakarta Sans',
+                      fontSize: 11,
+                      color: AppColors.textSecondary.withValues(alpha: 0.85),
+                    ),
                   ),
-                ),
-              ),
+                ],
+              ],
             );
           },
         ),

@@ -373,6 +373,29 @@ router.get('/tontines/:tontineId/history', async (req, res) => {
   try {
     const { tontineId } = req.params;
     const { db } = require('../services/firebase');
+    const { getUserProfile } = require('../services/userService');
+
+    const nameCache = new Map();
+
+    const resolveMemberName = async (identifier) => {
+      const key = String(identifier || '').trim();
+      if (!key) return '';
+      if (nameCache.has(key)) return nameCache.get(key);
+
+      try {
+        const profile = await getUserProfile(key);
+        const firstName = String(profile?.firstName || '').trim();
+        const lastName = String(profile?.lastName || '').trim();
+        const displayName = [firstName, lastName].filter(Boolean).join(' ').trim()
+          || String(profile?.pseudo || profile?.name || profile?.displayName || '').trim()
+          || key;
+        nameCache.set(key, displayName);
+        return displayName;
+      } catch (_) {
+        nameCache.set(key, key);
+        return key;
+      }
+    };
 
     const [paymentSnap, transactionSnap, allocationSnap] = await Promise.all([
       db.collection('contributions')
@@ -393,11 +416,12 @@ router.get('/tontines/:tontineId/history', async (req, res) => {
 
     for (const doc of paymentSnap.docs) {
       const data = doc.data() || {};
+      const memberName = await resolveMemberName(data.userId);
       history.push({
         id: doc.id,
         kind: 'payment',
         date: data.datePaiement || data.updatedAt || data.date || null,
-        member: String(data.userId || '').trim(),
+        member: memberName,
         action: 'Cotisation payée',
         amount: data.montant ?? 0,
         currency: 'FCFA',
@@ -420,11 +444,13 @@ router.get('/tontines/:tontineId/history', async (req, res) => {
         AJOUT_MEMBRE: 'Membre ajouté',
       };
 
+      const memberName = await resolveMemberName(data.toUserId || data.userId || data.fromUserId);
+
       history.push({
         id: doc.id,
         kind: type === 'GAIN' ? 'allocation' : 'transaction',
         date: data.date || data.updatedAt || data.createdAt || null,
-        member: String(data.toUserId || data.userId || data.fromUserId || '').trim(),
+        member: memberName,
         action: actionByType[type] || type,
         amount: data.montant ?? data.amount ?? 0,
         currency: 'FCFA',
@@ -436,11 +462,12 @@ router.get('/tontines/:tontineId/history', async (req, res) => {
     for (const doc of allocationSnap.docs) {
       const data = doc.data() || {};
       const args = data.args || {};
+      const memberName = await resolveMemberName(args.beneficiaire);
       history.push({
         id: doc.id,
         kind: 'allocation',
         date: args.timestamp || data.createdAt || null,
-        member: String(args.beneficiaire || '').trim(),
+        member: memberName,
         action: 'Cagnotte libérée',
         amount: args.montantLibere ?? args.montantTotal ?? 0,
         currency: 'FCFA',
