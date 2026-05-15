@@ -496,8 +496,11 @@ class FirestoreDatabaseService {
     final tontine = await getTontine(tontineId);
     if (tontine == null) return const [];
 
-    final memberIds = List<String>.from(tontine['membres'] ?? <String>[]);
-    final creatorId = (tontine['creatorId'] ?? '').toString();
+    // Normalize member IDs to handle both old and new casing conventions
+    final memberIds = List<String>.from(tontine['membres'] ?? <String>[])
+        .map((id) => _normalizeUid(id))
+        .toList();
+    final normalizedCreatorId = _normalizeUid((tontine['creatorId'] ?? '').toString());
     // Utiliser 1 comme cycle par défaut pour rester cohérent avec la
     // simulation de paiement qui enregistre les contributions sur le cycle 1
     // lorsque la tontine n'a pas encore démarré (cycleActuel absent/0).
@@ -515,7 +518,7 @@ class FirestoreDatabaseService {
         final data = doc.data();
         final statut = (data['statut'] ?? '').toString().toUpperCase();
         if (statut == 'PAYE') {
-          final paidUserId = (data['userId'] ?? '').toString();
+          final paidUserId = _normalizeUid((data['userId'] ?? '').toString());
           if (paidUserId.isNotEmpty) {
             paidMemberIds.add(paidUserId);
           }
@@ -537,7 +540,7 @@ class FirestoreDatabaseService {
       final phone = (profile['phone'] ?? '').toString();
       final photoUrl = (profile['photoUrl'] ?? '').toString();
 
-      final isCreator = memberId == creatorId;
+      final isCreator = memberId == normalizedCreatorId;
       final role = isCreator ? 'Créateur' : 'Bénéficiaire';
 
       // Un membre est considéré comme "payé" uniquement s'il existe une
@@ -587,7 +590,9 @@ class FirestoreDatabaseService {
 
     List<Map<String, dynamic>> normalized = rawCalendar;
     if (normalized.isEmpty) {
-      final order = List<String>.from(tontine['ordre'] ?? const []);
+      final order = List<String>.from(tontine['ordre'] ?? const [])
+          .map((id) => _normalizeUid(id))
+          .toList();
       normalized = List.generate(order.length, (index) {
         return {
           'rang': index + 1,
@@ -598,7 +603,7 @@ class FirestoreDatabaseService {
     }
 
     final uniqueUserIds = normalized
-        .map((slot) => (slot['userId'] ?? '').toString())
+        .map((slot) => _normalizeUid((slot['userId'] ?? '').toString()))
         .where((id) => id.isNotEmpty)
         .toSet()
         .toList(growable: false);
@@ -623,7 +628,7 @@ class FirestoreDatabaseService {
     });
 
     return normalized.map((slot) {
-      final userId = (slot['userId'] ?? '').toString();
+      final userId = _normalizeUid((slot['userId'] ?? '').toString());
       final rang = (slot['rang'] as num?)?.toInt() ?? 0;
       final cycleProjection = cycleById[rang];
       final cycleStatus = (cycleProjection?['status'] ?? cycleProjection?['statut'] ?? '').toString().toUpperCase();
@@ -634,6 +639,7 @@ class FirestoreDatabaseService {
       return {
         ...slot,
         'displayName': userId.isEmpty ? 'Membre' : (namesByUid[userId] ?? userId),
+        'userId': userId,
         'status': received ? 'RECU' : 'A_VENIR',
         'statusLabel': received ? 'Reçu' : 'À venir',
         'isReceived': received,
@@ -687,17 +693,26 @@ class FirestoreDatabaseService {
 
   /// Ajoute un membre à une tontine.
   Future<void> addMemberToTontine(String tontineId, String userId) async {
+      final normalizedUserId = _normalizeUid(userId);
     final tontine = await getTontine(tontineId);
     if (tontine == null) return;
 
-    final currentMembers = List<String>.from(tontine['membres'] ?? []);
-    final ordreList = List<String>.from(tontine['ordre'] ?? []);
-    final ordreIndex = Map<String, int>.from(tontine['ordreIndex'] ?? {});
+      // Normalize all existing members for consistent comparison
+      final currentMembers = List<String>.from(tontine['membres'] ?? [])
+          .map((id) => _normalizeUid(id))
+          .toList();
+      final ordreList = List<String>.from(tontine['ordre'] ?? [])
+          .map((id) => _normalizeUid(id))
+          .toList();
+      final ordreIndex = <String, int>{};
+      for (int i = 0; i < ordreList.length; i++) {
+        ordreIndex[ordreList[i]] = i;
+      }
 
-    if (!currentMembers.contains(userId)) {
-      currentMembers.add(userId);
-      ordreList.add(userId);
-      ordreIndex[userId] = ordreList.length - 1;
+      if (!currentMembers.contains(normalizedUserId)) {
+        currentMembers.add(normalizedUserId);
+        ordreList.add(normalizedUserId);
+        ordreIndex[normalizedUserId] = ordreList.length - 1;
 
       final maxMembers = (tontine['nombreMaxMembres'] as num?)?.toInt() ?? 0;
       final placesRestantes = maxMembers - currentMembers.length;
