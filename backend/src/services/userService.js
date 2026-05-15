@@ -5,7 +5,7 @@ const { getGlobalScore } = require('./scoreService');
 const { createCustodialWallet } = require('./walletService');
 
 function normalizeWallet(wallet) {
-  return String(wallet || '').toLowerCase();
+  return String(wallet || '');
 }
 
 function normalizeStatus(value) {
@@ -73,18 +73,54 @@ async function getOnChainCycleInfo(tontineId) {
  */
 async function getUserProfile(wallet) {
   const normalizedWallet = normalizeWallet(wallet);
-  const userSnap = await db.collection('users').doc(normalizedWallet).get();
-  
+  let userSnap = await db.collection('users').doc(normalizedWallet).get();
+
   if (!userSnap.exists) {
-    return null;
+    const uidQuery = await db.collection('users')
+      .where('uid', '==', normalizedWallet)
+      .limit(1)
+      .get();
+
+    if (uidQuery.empty) {
+      const walletQuery = await db.collection('users')
+        .where('wallet', '==', normalizedWallet)
+        .limit(1)
+        .get();
+
+      if (walletQuery.empty) {
+        return null;
+      }
+
+      userSnap = walletQuery.docs[0];
+    } else {
+      userSnap = uidQuery.docs[0];
+    }
   }
 
   const profileData = userSnap.data();
+  let walletAddress = profileData.walletAddress || profileData.walletAddresse || null;
+
+  if (!walletAddress) {
+    const custodialWallet = createCustodialWallet();
+    walletAddress = custodialWallet.walletAddress;
+
+    await userSnap.ref.set({
+      walletAddress,
+      walletAddresse: walletAddress,
+      walletType: 'custodial',
+      walletEncryptedPrivateKey: custodialWallet.walletEncryptedPrivateKey,
+      walletEncryptedIv: custodialWallet.walletEncryptedIv,
+      walletEncryptedAuthTag: custodialWallet.walletEncryptedAuthTag,
+      walletCreatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+  }
+
   const globalScore = await getGlobalScore(normalizedWallet);
 
   return {
     wallet: normalizedWallet,
-    walletAddress: profileData.walletAddress || null,
+    walletAddress,
     walletType: profileData.walletType || null,
     pseudo: profileData.pseudo || null,
     email: profileData.email || null,

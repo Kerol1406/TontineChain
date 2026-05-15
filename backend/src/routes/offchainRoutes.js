@@ -369,4 +369,97 @@ router.get('/tontines/:tontineId/timeline', async (req, res) => {
   }
 });
 
+router.get('/tontines/:tontineId/history', async (req, res) => {
+  try {
+    const { tontineId } = req.params;
+    const { db } = require('../services/firebase');
+
+    const [paymentSnap, transactionSnap, allocationSnap] = await Promise.all([
+      db.collection('contributions')
+        .where('tontineId', '==', tontineId)
+        .where('deleted', '==', false)
+        .where('statut', '==', 'PAYE')
+        .get(),
+      db.collection('transactions')
+        .where('tontineId', '==', tontineId)
+        .where('deleted', '==', false)
+        .get(),
+      db.collection('tontines').doc(tontineId).collection('chainEvents')
+        .where('eventName', '==', 'AllocationDistribuee')
+        .get(),
+    ]);
+
+    const history = [];
+
+    for (const doc of paymentSnap.docs) {
+      const data = doc.data() || {};
+      history.push({
+        id: doc.id,
+        kind: 'payment',
+        date: data.datePaiement || data.updatedAt || data.date || null,
+        member: String(data.userId || '').trim(),
+        action: 'Cotisation payée',
+        amount: data.montant ?? 0,
+        currency: 'FCFA',
+        source: 'contributions',
+        raw: data,
+      });
+    }
+
+    for (const doc of transactionSnap.docs) {
+      const data = doc.data() || {};
+      const type = String(data.type || '').toUpperCase();
+      if (!['COTISATION', 'GAIN', 'CREATION_TONTINE', 'AJOUT_MEMBRE'].includes(type)) {
+        continue;
+      }
+
+      const actionByType = {
+        COTISATION: 'Cotisation payée',
+        GAIN: 'Cagnotte libérée',
+        CREATION_TONTINE: 'Tontine créée',
+        AJOUT_MEMBRE: 'Membre ajouté',
+      };
+
+      history.push({
+        id: doc.id,
+        kind: type === 'GAIN' ? 'allocation' : 'transaction',
+        date: data.date || data.updatedAt || data.createdAt || null,
+        member: String(data.toUserId || data.userId || data.fromUserId || '').trim(),
+        action: actionByType[type] || type,
+        amount: data.montant ?? data.amount ?? 0,
+        currency: 'FCFA',
+        source: 'transactions',
+        raw: data,
+      });
+    }
+
+    for (const doc of allocationSnap.docs) {
+      const data = doc.data() || {};
+      const args = data.args || {};
+      history.push({
+        id: doc.id,
+        kind: 'allocation',
+        date: args.timestamp || data.createdAt || null,
+        member: String(args.beneficiaire || '').trim(),
+        action: 'Cagnotte libérée',
+        amount: args.montantLibere ?? args.montantTotal ?? 0,
+        currency: 'FCFA',
+        source: 'chainEvents',
+        raw: data,
+      });
+    }
+
+    history.sort((left, right) => {
+      const leftDate = left.date?.toMillis ? left.date.toMillis() : new Date(left.date || 0).getTime();
+      const rightDate = right.date?.toMillis ? right.date.toMillis() : new Date(right.date || 0).getTime();
+      return rightDate - leftDate;
+    });
+
+    return res.status(200).json({ ok: true, history });
+  } catch (error) {
+    console.error('[api] history error', error);
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 module.exports = { offchainRoutes: router };

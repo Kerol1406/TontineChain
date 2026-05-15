@@ -45,8 +45,8 @@ class FirestoreDatabaseService {
     CollectionReference<Map<String, dynamic>> get _invitations =>
       _firestore.collection('invitations');
 
-  /// Normalize UID to lowercase to match backend normalization and avoid duplicate docs
-  String _normalizeUid(String uid) => uid.toLowerCase();
+  /// Keep the UID exactly as provided by Firebase Auth.
+  String _normalizeUid(String uid) => uid;
 
   // ============================================================================
   // USERS
@@ -92,6 +92,7 @@ class FirestoreDatabaseService {
       'tontines': tontines, // liste des tontineId
       'deleted': deleted,
       if (walletAddress != null) 'walletAddress': walletAddress,
+      if (walletAddress != null) 'walletAddresse': walletAddress,
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
@@ -115,10 +116,12 @@ class FirestoreDatabaseService {
     }
 
     final data = doc.data() ?? <String, dynamic>{};
+    final walletAddress = (data['walletAddress'] ?? data['walletAddresse'])?.toString();
     final score = await _getUserGlobalScore(uid);
 
     return {
       ...data,
+      if (walletAddress != null && walletAddress.isNotEmpty) 'walletAddress': walletAddress,
       'trustScore': score,
       'globalScore': score,
     };
@@ -491,7 +494,7 @@ class FirestoreDatabaseService {
   /// Récupère le calendrier d'allocations d'une tontine avec noms d'affichage.
   /// Retour: [{rang, userId, displayName, dateAllocation}]
   /// Récupère les membres d'une tontine avec leur statut de paiement.
-  /// Retour: [{userId, displayName, photoUrl, role, isPaid, phone}]
+  /// Retour: [{userId, displayName, photoUrl, role, isPaid, phone, statusDate}]
   Future<List<Map<String, dynamic>>> getTontineMembersWithPayments(String tontineId) async {
     final tontine = await getTontine(tontineId);
     if (tontine == null) return const [];
@@ -506,6 +509,21 @@ class FirestoreDatabaseService {
     // lorsque la tontine n'a pas encore démarré (cycleActuel absent/0).
     final currentCycle = (tontine['cycleActuel'] as num?)?.toInt() ?? 1;
     final paidMemberIds = <String>{};
+    final statusDateByMember = <String, DateTime>{};
+
+    final allocationSlots = (tontine['calendrierAllocations'] as List?)
+            ?.whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList(growable: false) ??
+        const <Map<String, dynamic>>[];
+
+    for (final slot in allocationSlots) {
+      final slotUserId = _normalizeUid((slot['userId'] ?? '').toString());
+      final slotDate = _parseDateTime(slot['dateAllocation']);
+      if (slotUserId.isNotEmpty && slotDate != null) {
+        statusDateByMember[slotUserId] = slotDate;
+      }
+    }
 
     if (currentCycle >= 1) {
       final contributionsQuery = await _contributions
@@ -521,6 +539,10 @@ class FirestoreDatabaseService {
           final paidUserId = _normalizeUid((data['userId'] ?? '').toString());
           if (paidUserId.isNotEmpty) {
             paidMemberIds.add(paidUserId);
+            final paidDate = _parseDateTime(data['datePaiement']) ?? _parseDateTime(data['date']);
+            if (paidDate != null) {
+              statusDateByMember[paidUserId] = paidDate;
+            }
           }
         }
       }
@@ -542,6 +564,7 @@ class FirestoreDatabaseService {
 
       final isCreator = memberId == normalizedCreatorId;
       final role = isCreator ? 'Créateur' : 'Bénéficiaire';
+      final statusDate = statusDateByMember[memberId];
 
       // Un membre est considéré comme "payé" uniquement s'il existe une
       // contribution marquée PAYE pour le cycle courant. Ne pas inférer
@@ -556,6 +579,7 @@ class FirestoreDatabaseService {
         'role': role,
         'isPaid': isPaid,
         'phone': phone,
+        'statusDate': statusDate,
       });
     }
 

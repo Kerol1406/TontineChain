@@ -12,10 +12,7 @@ const router = express.Router();
 router.get('/users/:wallet/profile', async (req, res) => {
   try {
     const { wallet } = req.params;
-    // Normalize wallet to lowercase for consistency
-    const normalizedWallet = String(wallet || '').toLowerCase();
-    
-    const profile = await getUserProfile(normalizedWallet);
+    const profile = await getUserProfile(String(wallet || ''));
 
     if (!profile) {
       return res.status(404).json({ ok: false, error: 'User profile not found' });
@@ -38,9 +35,6 @@ router.post('/users/:wallet/profile', async (req, res) => {
     const { wallet } = req.params;
     const { pseudo, email, phone, bio, avatar } = req.body;
 
-    // Normalize wallet to lowercase for consistency
-    const normalizedWallet = String(wallet || '').toLowerCase();
-    
     const profileData = {
       pseudo,
       email,
@@ -49,7 +43,7 @@ router.post('/users/:wallet/profile', async (req, res) => {
       avatar
     };
 
-    const updatedProfile = await updateUserProfile(normalizedWallet, profileData);
+    const updatedProfile = await updateUserProfile(String(wallet || ''), profileData);
 
     return res.status(200).json({ ok: true, profile: updatedProfile });
   } catch (error) {
@@ -68,8 +62,7 @@ router.put('/users/:userId/profile', async (req, res) => {
     const { userId } = req.params;
     const { pseudo, email, phone, bio, avatar } = req.body;
 
-    // Normalize userId to lowercase to match backend wallet normalization
-    const normalizedUserId = String(userId || '').toLowerCase();
+    const exactUserId = String(userId || '');
 
     const now = admin.firestore.FieldValue.serverTimestamp();
 
@@ -83,14 +76,14 @@ router.put('/users/:userId/profile', async (req, res) => {
     };
 
     // Check if user doc exists
-    const userRef = db.collection('users').doc(normalizedUserId);
+    const userRef = db.collection('users').doc(exactUserId);
     const existingSnap = await userRef.get();
 
     if (!existingSnap.exists) {
       // First creation: add createdAt and create custodial wallet
       updateData.createdAt = now;
       updateData.verified = false;
-      updateData.firebaseUid = userId;
+      updateData.firebaseUid = exactUserId;
       
       const custodialWallet = createCustodialWallet();
       updateData.walletAddress = custodialWallet.walletAddress;

@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:provider/provider.dart';
 import 'package:tontinechain/models/index.dart';
 import 'package:tontinechain/constants/app_colors.dart';
 import 'package:tontinechain/screens/app_shell.dart';
 import 'package:tontinechain/screens/notifications_screen.dart';
-import 'package:tontinechain/services/tontine_service.dart';
 import 'package:tontinechain/services/auth_state.dart';
+import 'package:tontinechain/services/backend_service.dart';
 
 /// Écran Contrat Intelligent — TontineChain
 /// Sections : Carte verte, Règles, Confiance Technique,
@@ -21,6 +22,7 @@ class ContratSmartScreen extends StatefulWidget {
 }
 
 class _ContratSmartScreenState extends State<ContratSmartScreen> {
+  late final Future<String?> _contractAddressFuture;
 
   // ── Formatage montant ──────────────────────────────────────────────────────
   String _formatMontant(double value) {
@@ -33,11 +35,33 @@ class _ContratSmartScreenState extends State<ContratSmartScreen> {
     return buffer.toString();
   }
 
-  String _shortHash(String h) {
-    if (h.startsWith('0x') && h.length > 12) {
-      return '${h.substring(0, 6)}...${h.substring(h.length - 4)}';
+  Future<List<Map<String, dynamic>>> _loadHistory() {
+    return BackendService.instance.getTontineHistory(widget.tontine.id);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _contractAddressFuture = _loadContractAddress();
+  }
+
+  Future<String?> _loadContractAddress() async {
+    final contract = await BackendService.instance.getTontineContract(widget.tontine.id);
+    final address = contract?['contractAddress']?.toString().trim();
+    return (address != null && address.isNotEmpty) ? address : null;
+  }
+
+  Future<void> _openPolygonScan(String contractAddress) async {
+    final url = Uri.parse('https://polygonscan.com/address/$contractAddress');
+    final launched = await launchUrl(url, mode: LaunchMode.externalApplication);
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Impossible d’ouvrir PolygonScan pour $contractAddress'),
+          backgroundColor: AppColors.error,
+        ),
+      );
     }
-    return h;
   }
 
   @override
@@ -540,33 +564,41 @@ class _ContratSmartScreenState extends State<ContratSmartScreen> {
         const SizedBox(height: 16),
 
         // Bouton Polygonscan
-        SizedBox(
-          width: double.infinity, height: 48,
-          child: ElevatedButton.icon(
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Ouverture Polygonscan — bientôt disponible'),
-                  backgroundColor: AppColors.primary,
-                  behavior: SnackBarBehavior.floating,
+        FutureBuilder<String?>(
+          future: _contractAddressFuture,
+          builder: (context, snapshot) {
+            final contractAddress = snapshot.data;
+            final isReady = contractAddress != null && contractAddress.isNotEmpty;
+
+            return SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton.icon(
+                onPressed: isReady
+                    ? () => _openPolygonScan(contractAddress)
+                    : null,
+                icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                label: Text(
+                  isReady ? 'Explorer sur PolygonScan' : 'Chargement du contrat...',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: 'Plus Jakarta Sans', fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              );
-            },
-            icon: const Icon(Icons.open_in_new_rounded, size: 18),
-            label: const Text('Explorer sur Polygonscan',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontFamily: 'Plus Jakarta Sans', fontSize: 14,
-                fontWeight: FontWeight.w700,
-              )),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white, elevation: 0,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-            ),
-          ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.45),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            );
+          },
         ),
         const SizedBox(height: 20),
 
@@ -592,11 +624,8 @@ class _ContratSmartScreenState extends State<ContratSmartScreen> {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
-        child: FutureBuilder<List<Object>>(
-          future: Future.wait([
-            MockTontineService().getHistoricPayments(widget.tontine.id),
-            MockTontineService().getMembers(widget.tontine.id),
-          ]),
+        child: FutureBuilder<List<Map<String, dynamic>>>(
+          future: _loadHistory(),
           builder: (context, snapshot) {
             // ── Chargement ─────────────────────────────────────────────────
             if (snapshot.connectionState == ConnectionState.waiting) {
@@ -607,11 +636,10 @@ class _ContratSmartScreenState extends State<ContratSmartScreen> {
                       color: AppColors.primary, strokeWidth: 2.5)));
             }
 
-            final payments = (snapshot.data?[0] as List<Payment>?) ?? [];
-            final members  = (snapshot.data?[1] as List<Member>?)  ?? [];
+            final history = snapshot.data ?? const <Map<String, dynamic>>[];
 
             // ── Vide ────────────────────────────────────────────────────────
-            if (payments.isEmpty) {
+            if (history.isEmpty) {
               return Padding(
                 padding: const EdgeInsets.all(28),
                 child: Column(
@@ -631,11 +659,7 @@ class _ContratSmartScreenState extends State<ContratSmartScreen> {
               );
             }
 
-            // Tri par date desc
-            payments.sort((a, b) =>
-                b.paymentDate.compareTo(a.paymentDate));
-            final displayedPayments =
-                payments.length > 8 ? payments.sublist(0, 8) : payments;
+            final displayedHistory = history.length > 8 ? history.sublist(0, 8) : history;
 
             // ── Tableau scrollable ──────────────────────────────────────────
             return Scrollbar(
@@ -667,67 +691,45 @@ class _ContratSmartScreenState extends State<ContratSmartScreen> {
                       ),
 
                       // Lignes de données
-                      ...List.generate(displayedPayments.length, (i) {
-                        final p = displayedPayments[i];
-                        final isLast = i == displayedPayments.length - 1;
+                      ...List.generate(displayedHistory.length, (i) {
+                        final row = displayedHistory[i];
+                        final isLast = i == displayedHistory.length - 1;
+                        final date = _parseHistoryDate(row['date']);
+                        final member = (row['member'] ?? '').toString().trim();
+                        final action = (row['action'] ?? 'Action').toString();
+                        final amount = (row['amount'] as num?)?.toDouble() ?? 0;
+                        final kind = (row['kind'] ?? '').toString();
 
-                        // Trouver le membre
-                        final member = members.firstWhere(
-                          (m) => m.id == p.memberId,
-                          orElse: () => Member(
-                            id: p.memberId, tontineId: widget.tontine.id,
-                            name: 'Membre', email: '', phone: '',
-                            profileImageUrl: '', role: 'participant',
-                            joinedAt: DateTime.now(), isPaid: true,
-                            allocationOrder: 0, allocationStatus: 'waiting',
-                          ),
-                        );
+                        final dateStr = date == null
+                            ? 'Date'
+                            : '${date.day.toString().padLeft(2, '0')} ${_monthAbbr(date.month)}\n${date.year}';
+                        final heureStr = date == null
+                            ? ''
+                            : '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
 
-                        final bool isCotisation =
-                            !p.transactionId.startsWith('reception');
-                        final String action =
-                            isCotisation ? 'Cotisation' : 'Déblocage';
-
-                        // Date formatée
-                        final String dateStr =
-                            '${p.paymentDate.day.toString().padLeft(2, '0')} '
-                            '${_monthAbbr(p.paymentDate.month)}\n'
-                            '${p.paymentDate.year}';
-                        final String heureStr =
-                            '${p.paymentDate.hour.toString().padLeft(2, '0')}:'
-                            '${p.paymentDate.minute.toString().padLeft(2, '0')}';
-
-                        // Initiales membre
-                        final parts = member.name.trim().split(' ');
-                        final initiales = parts.length >= 2
-                            ? '${parts[0][0]}${parts[1][0]}'.toUpperCase()
-                            : (member.name.isNotEmpty
-                                ? member.name[0].toUpperCase()
-                                : 'M');
-
-                        // Couleur avatar
+                        final avatarSeed = member.isEmpty ? 'M' : member;
+                        final initials = _getInitials(avatarSeed);
                         final avatarColors = [
                           const Color(0xFFFFB300), const Color(0xFF26A69A),
                           const Color(0xFF66BB6A), const Color(0xFF7E57C2),
                           const Color(0xFFEF5350), const Color(0xFF42A5F5),
                         ];
-                        final avatarColor =
-                            avatarColors[i % avatarColors.length];
+                        final avatarColor = avatarColors[i % avatarColors.length];
+                        final isPayment = kind == 'payment';
+                        final actionColor = isPayment ? const Color(0xFF1A7A35) : const Color(0xFF8D6E00);
+                        final actionBg = isPayment ? const Color(0xFFE8F5E9) : const Color(0xFFFFF8E1);
 
                         return Column(
                           children: [
                             Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 14),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                               child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.center,
                                 children: [
-                                  // DATE
                                   SizedBox(
                                     width: 80,
                                     child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
+                                      crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         Text(dateStr,
                                           style: const TextStyle(
@@ -737,28 +739,25 @@ class _ContratSmartScreenState extends State<ContratSmartScreen> {
                                             color: AppColors.textPrimary,
                                             height: 1.3,
                                           )),
-                                        Text(heureStr,
-                                          style: TextStyle(
-                                            fontFamily: 'Plus Jakarta Sans',
-                                            fontSize: 11,
-                                            color: AppColors.textSecondary
-                                                .withValues(alpha: 0.6),
-                                          )),
+                                        if (heureStr.isNotEmpty)
+                                          Text(heureStr,
+                                            style: TextStyle(
+                                              fontFamily: 'Plus Jakarta Sans',
+                                              fontSize: 11,
+                                              color: AppColors.textSecondary.withValues(alpha: 0.6),
+                                            )),
                                       ],
                                     ),
                                   ),
                                   const SizedBox(width: 16),
-
-                                  // MEMBRE
                                   SizedBox(
                                     width: 150,
                                     child: Row(
                                       children: [
                                         CircleAvatar(
                                           radius: 18,
-                                          backgroundColor: avatarColor
-                                              .withValues(alpha: 0.18),
-                                          child: Text(initiales,
+                                          backgroundColor: avatarColor.withValues(alpha: 0.18),
+                                          child: Text(initials,
                                             style: TextStyle(
                                               fontFamily: 'Manrope',
                                               fontSize: 11,
@@ -768,7 +767,7 @@ class _ContratSmartScreenState extends State<ContratSmartScreen> {
                                         ),
                                         const SizedBox(width: 8),
                                         Flexible(
-                                          child: Text(member.name,
+                                          child: Text(member.isEmpty ? 'Système' : member,
                                             style: const TextStyle(
                                               fontFamily: 'Plus Jakarta Sans',
                                               fontSize: 13,
@@ -781,19 +780,13 @@ class _ContratSmartScreenState extends State<ContratSmartScreen> {
                                     ),
                                   ),
                                   const SizedBox(width: 16),
-
-                                  // ACTION badge
                                   SizedBox(
                                     width: 110,
                                     child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 10, vertical: 6),
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                       decoration: BoxDecoration(
-                                        color: isCotisation
-                                            ? const Color(0xFFE8F5E9)
-                                            : const Color(0xFFFFF8E1),
-                                        borderRadius:
-                                            BorderRadius.circular(20),
+                                        color: actionBg,
+                                        borderRadius: BorderRadius.circular(20),
                                       ),
                                       child: Row(
                                         mainAxisSize: MainAxisSize.min,
@@ -802,32 +795,29 @@ class _ContratSmartScreenState extends State<ContratSmartScreen> {
                                             width: 6, height: 6,
                                             decoration: BoxDecoration(
                                               shape: BoxShape.circle,
-                                              color: isCotisation
-                                                  ? const Color(0xFF1A7A35)
-                                                  : const Color(0xFF8D6E00),
+                                              color: actionColor,
                                             ),
                                           ),
                                           const SizedBox(width: 6),
-                                          Text(action,
-                                            style: TextStyle(
-                                              fontFamily: 'Plus Jakarta Sans',
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w700,
-                                              color: isCotisation
-                                                  ? const Color(0xFF1A7A35)
-                                                  : const Color(0xFF8D6E00),
-                                            )),
+                                          Flexible(
+                                            child: Text(action,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontFamily: 'Plus Jakarta Sans',
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w700,
+                                                color: actionColor,
+                                              )),
+                                          ),
                                         ],
                                       ),
                                     ),
                                   ),
                                   const SizedBox(width: 16),
-
-                                  // MONTANT
                                   SizedBox(
                                     width: 110,
                                     child: Text(
-                                      '${_formatMontant(p.amount)} FCFA',
+                                      '${_formatMontant(amount)} FCFA',
                                       textAlign: TextAlign.right,
                                       style: const TextStyle(
                                         fontFamily: 'Manrope', fontSize: 13,
@@ -839,9 +829,7 @@ class _ContratSmartScreenState extends State<ContratSmartScreen> {
                               ),
                             ),
                             if (!isLast)
-                              Divider(height: 1,
-                                  color: AppColors.primary
-                                      .withValues(alpha: 0.07)),
+                              Divider(height: 1, color: AppColors.primary.withValues(alpha: 0.07)),
                           ],
                         );
                       }),
@@ -944,6 +932,23 @@ class _ContratSmartScreenState extends State<ContratSmartScreen> {
       'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc',
     ];
     return months[month - 1];
+  }
+
+  static DateTime? _parseHistoryDate(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) return value;
+    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+
+    final text = value.toString();
+    final secondsMatch = RegExp(r'seconds=(\d+)').firstMatch(text);
+    if (secondsMatch != null) {
+      final seconds = int.tryParse(secondsMatch.group(1)!);
+      if (seconds != null) {
+        return DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
+      }
+    }
+
+    return DateTime.tryParse(text);
   }
 
   String _formatFrequency(String? freq) {

@@ -180,6 +180,52 @@ class BackendService {
     }
   }
 
+  /// GET /api/tontines/:tontineId/contract
+  Future<Map<String, dynamic>?> getTontineContract(String tontineId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/tontines/$tontineId/contract'),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) {
+          return decoded;
+        }
+        return null;
+      }
+
+      throw Exception('Erreur: ${response.statusCode} - ${response.body}');
+    } catch (e) {
+      print('[ERROR] getTontineContract failed: $e');
+      rethrow;
+    }
+  }
+
+  /// GET /api/tontines/:tontineId/history
+  Future<List<Map<String, dynamic>>> getTontineHistory(String tontineId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/tontines/$tontineId/history'),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map<String, dynamic> && data['history'] is List) {
+          return List<Map<String, dynamic>>.from(data['history'] as List);
+        }
+        return [];
+      }
+
+      throw Exception('Erreur: ${response.statusCode} - ${response.body}');
+    } catch (e) {
+      print('[ERROR] getTontineHistory failed: $e');
+      rethrow;
+    }
+  }
+
   /// POST /api/tontines/deploy
   Future<Map<String, dynamic>> deployTontineContract(Map<String, dynamic> payload) async {
     try {

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 import 'package:tontinechain/constants/app_colors.dart';
 import 'package:tontinechain/models/index.dart';
@@ -1397,12 +1398,14 @@ class _MembersPanel extends StatelessWidget {
       final memberName = (member['displayName'] ?? member['name'] ?? 'Membre').toString();
       final isCurrentUser = memberName.toLowerCase().contains(highlightedName.split(' ').first) || memberName.toLowerCase().contains('vous');
       final bool isPaid = (member['isPaid'] as bool?) ?? false;
+      final statusDate = member['statusDate'];
       final score = (member['score'] as num?)?.toInt() ?? 40;
       final role = (member['role'] ?? 'Membre actif').toString();
       return _MemberDisplay(
         name: isCurrentUser ? 'Vous (Moi)' : memberName,
         subtitle: role == 'Créateur' || role == 'organizer' ? 'Créateur' : 'Membre actif',
         status: isPaid ? 'Payé' : 'En attente',
+        statusDate: _formatMemberDate(statusDate),
         isPaid: isPaid,
         highlighted: isCurrentUser,
         score: score,
@@ -1513,14 +1516,29 @@ class _MemberRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          Text(
-            display.status,
-            style: TextStyle(
-              fontFamily: 'Plus Jakarta Sans',
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-              color: statusColor,
-            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                display.statusDate,
+                style: TextStyle(
+                  fontFamily: 'Plus Jakarta Sans',
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: statusColor,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                display.status,
+                style: TextStyle(
+                  fontFamily: 'Plus Jakarta Sans',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: statusColor,
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1532,6 +1550,7 @@ class _MemberDisplay {
   final String name;
   final String subtitle;
   final String status;
+  final String statusDate;
   final bool isPaid;
   final bool highlighted;
   final int score;
@@ -1540,10 +1559,41 @@ class _MemberDisplay {
     required this.name,
     required this.subtitle,
     required this.status,
+    required this.statusDate,
     required this.isPaid,
     required this.score,
     this.highlighted = false,
   });
+}
+
+String _formatMemberDate(dynamic value) {
+  final date = _parseMemberDate(value);
+  if (date == null) return 'Date indisponible';
+  final day = date.day.toString().padLeft(2, '0');
+  final month = date.month.toString().padLeft(2, '0');
+  final year = date.year.toString();
+  return '$day/$month/$year';
+}
+
+DateTime? _parseMemberDate(dynamic value) {
+  if (value == null) return null;
+  if (value is DateTime) return value;
+  if (value is Timestamp) return value.toDate();
+  if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+  if (value is String) {
+    return DateTime.tryParse(value);
+  }
+
+  final text = value.toString();
+  final match = RegExp(r'seconds=(\d+)').firstMatch(text);
+  if (match != null) {
+    final seconds = int.tryParse(match.group(1)!);
+    if (seconds != null) {
+      return DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
+    }
+  }
+
+  return DateTime.tryParse(text);
 }
 
 class _TimelineItem {
