@@ -120,6 +120,22 @@ router.post('/tontines/:tontineId/pay', async (req, res) => {
     const tontineInfo = await contract.getTontine(tontineId);
     const contributionAmount = tontineInfo[1];
 
+    const ensureMemberOnChain = async () => {
+      try {
+        await sendTx(
+          contract.joinTontine(tontineId, resolvedMember, ''),
+          `joinTontine(${tontineId}) [auto-repair]`
+        );
+        return true;
+      } catch (joinError) {
+        const message = String(joinError?.message || joinError);
+        if (/Already member/i.test(message)) {
+          return true;
+        }
+        throw joinError;
+      }
+    };
+
     // Determine cycle to pay: prefer explicit cycleId, else contract current cycle, else 1
     let currentCycle = Number(cycleId || 0);
     if (!currentCycle) {
@@ -132,10 +148,28 @@ router.post('/tontines/:tontineId/pay', async (req, res) => {
     }
     if (!currentCycle) currentCycle = 1;
 
-    const receipt = await sendTx(
-      contract.payContribution(tontineId, currentCycle, resolvedMember, { value: contributionAmount }),
-      `payContribution(${tontineId}, cycle=${currentCycle})`
-    );
+    let receipt;
+    try {
+      receipt = await sendTx(
+        contract.payContribution(tontineId, currentCycle, resolvedMember, { value: contributionAmount }),
+        `payContribution(${tontineId}, cycle=${currentCycle})`
+      );
+    } catch (payError) {
+      const message = String(payError?.message || payError);
+      if (!/Not a member/i.test(message)) {
+        throw payError;
+      }
+
+      const repaired = await ensureMemberOnChain();
+      if (!repaired) {
+        throw payError;
+      }
+
+      receipt = await sendTx(
+        contract.payContribution(tontineId, currentCycle, resolvedMember, { value: contributionAmount }),
+        `payContribution(${tontineId}, cycle=${currentCycle}) [retry]`
+      );
+    }
 
     try {
       const { db, admin } = require('../services/firebase');

@@ -73,6 +73,23 @@ async function creditBeneficiaryWallet({ tontineId, beneficiaryWallet, montantLi
   };
 }
 
+async function createGlobalNotification({ userId, tontineId, type, title, message, metadata = {} }) {
+  if (!userId) return;
+
+  await db.collection('notifications').add({
+    userId,
+    tontineId,
+    type,
+    title,
+    message,
+    metadata,
+    read: false,
+    deleted: false,
+    date: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+  });
+}
+
 async function attachListenersForContract(contractMeta) {
   const { tontineId, contractAddress, network } = contractMeta;
   const contract = getContract(contractAddress);
@@ -298,6 +315,20 @@ async function attachListenersForContract(contractMeta) {
         `[listener] wallet credit skipped for ${beneficiaire.toLowerCase()} ` +
         `(${creditResult.reason}) on tontine ${eventTontineId}`
       );
+    } else {
+      await createGlobalNotification({
+        userId: creditResult.userId,
+        tontineId: eventTontineId,
+        type: 'allocation_ready',
+        title: 'Cagnotte libérée',
+        message: `Votre cagnotte a été ajoutée à votre portefeuille pour le cycle ${cycleId}.`,
+        metadata: {
+          txHash: event.log.transactionHash,
+          cycleId: cycleId.toString(),
+          montantLibere: montantLibere.toString(),
+          montantReserve: montantReserve.toString()
+        }
+      });
     }
   });
 }

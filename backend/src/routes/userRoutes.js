@@ -12,7 +12,10 @@ const router = express.Router();
 router.get('/users/:wallet/profile', async (req, res) => {
   try {
     const { wallet } = req.params;
-    const profile = await getUserProfile(wallet);
+    // Normalize wallet to lowercase for consistency
+    const normalizedWallet = String(wallet || '').toLowerCase();
+    
+    const profile = await getUserProfile(normalizedWallet);
 
     if (!profile) {
       return res.status(404).json({ ok: false, error: 'User profile not found' });
@@ -35,6 +38,9 @@ router.post('/users/:wallet/profile', async (req, res) => {
     const { wallet } = req.params;
     const { pseudo, email, phone, bio, avatar } = req.body;
 
+    // Normalize wallet to lowercase for consistency
+    const normalizedWallet = String(wallet || '').toLowerCase();
+    
     const profileData = {
       pseudo,
       email,
@@ -43,7 +49,7 @@ router.post('/users/:wallet/profile', async (req, res) => {
       avatar
     };
 
-    const updatedProfile = await updateUserProfile(wallet, profileData);
+    const updatedProfile = await updateUserProfile(normalizedWallet, profileData);
 
     return res.status(200).json({ ok: true, profile: updatedProfile });
   } catch (error) {
@@ -62,6 +68,9 @@ router.put('/users/:userId/profile', async (req, res) => {
     const { userId } = req.params;
     const { pseudo, email, phone, bio, avatar } = req.body;
 
+    // Normalize userId to lowercase to match backend wallet normalization
+    const normalizedUserId = String(userId || '').toLowerCase();
+
     const now = admin.firestore.FieldValue.serverTimestamp();
 
     const updateData = {
@@ -74,7 +83,7 @@ router.put('/users/:userId/profile', async (req, res) => {
     };
 
     // Check if user doc exists
-    const userRef = db.collection('users').doc(userId);
+    const userRef = db.collection('users').doc(normalizedUserId);
     const existingSnap = await userRef.get();
 
     if (!existingSnap.exists) {

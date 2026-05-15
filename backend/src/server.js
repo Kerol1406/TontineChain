@@ -5,6 +5,7 @@ const { wallet } = require('./services/blockchain');
 const { orchestrationRoutes } = require('./routes/orchestrationRoutes');
 const { offchainRoutes } = require('./routes/offchainRoutes');
 const userRoutes = require('./routes/userRoutes');
+const { startCycleScheduler } = require('./jobs/cycleScheduler');
 
 const app = express();
 app.use(cors());
@@ -22,4 +23,5 @@ app.listen(config.port, () => {
   console.log(`[server] listening on port ${config.port}`);
   console.log(`[server] network=${config.networkName}`);
   console.log(`[server] backendAddress=${wallet.address}`);
+  startCycleScheduler();
 });

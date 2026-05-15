@@ -45,6 +45,9 @@ class FirestoreDatabaseService {
     CollectionReference<Map<String, dynamic>> get _invitations =>
       _firestore.collection('invitations');
 
+  /// Normalize UID to lowercase to match backend normalization and avoid duplicate docs
+  String _normalizeUid(String uid) => uid.toLowerCase();
+
   // ============================================================================
   // USERS
   // ============================================================================
@@ -68,8 +71,9 @@ class FirestoreDatabaseService {
     bool deleted = false,
     String? walletAddress,
   }) async {
-    await _users.doc(uid).set({
-      'uid': uid,
+    final normalizedUid = _normalizeUid(uid);
+    await _users.doc(normalizedUid).set({
+      'uid': normalizedUid,
       'firstName': firstName,
       'lastName': lastName,
       'nom': '$firstName $lastName',
@@ -92,8 +96,8 @@ class FirestoreDatabaseService {
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
-    await _users.doc(uid).collection('globalScore').doc('current').set({
-      'wallet': uid,
+    await _users.doc(normalizedUid).collection('globalScore').doc('current').set({
+      'wallet': normalizedUid,
       'score': _defaultGlobalScore,
       'lastReason': 'initial',
       'totalTontineParticipations': 0,
@@ -104,7 +108,8 @@ class FirestoreDatabaseService {
 
   /// Récupère un profil utilisateur par UID.
   Future<Map<String, dynamic>?> getUserProfile(String uid) async {
-    final doc = await _users.doc(uid).get();
+    final normalizedUid = _normalizeUid(uid);
+    final doc = await _users.doc(normalizedUid).get();
     if (!doc.exists) {
       return null;
     }
@@ -122,7 +127,8 @@ class FirestoreDatabaseService {
   /// Récupère le score global d'un utilisateur depuis Firestore.
   /// Si le document n'existe pas encore, on renvoie le score par défaut du produit.
   Future<double> _getUserGlobalScore(String uid) async {
-    final doc = await _users.doc(uid).collection('globalScore').doc('current').get();
+    final normalizedUid = _normalizeUid(uid);
+    final doc = await _users.doc(normalizedUid).collection('globalScore').doc('current').get();
     if (!doc.exists) {
       return _defaultGlobalScore;
     }
@@ -207,7 +213,7 @@ class FirestoreDatabaseService {
 
   /// Met à jour le token FCM.
   Future<void> updateFcmToken(String uid, String? token) async {
-    await _users.doc(uid).set({
+    await _users.doc(_normalizeUid(uid)).set({
       'fcmToken': token,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
@@ -215,7 +221,7 @@ class FirestoreDatabaseService {
 
   /// Met à jour le solde du portefeuille.
   Future<void> updateSolde(String uid, double newSolde) async {
-    await _users.doc(uid).set({
+    await _users.doc(_normalizeUid(uid)).set({
       'solde': newSolde,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
@@ -223,7 +229,7 @@ class FirestoreDatabaseService {
 
   /// Ajoute une tontine à la liste des tontines de l'utilisateur.
   Future<void> addTontineToUser(String uid, String tontineId) async {
-    await _users.doc(uid).update({
+    await _users.doc(_normalizeUid(uid)).update({
       'tontines': FieldValue.arrayUnion([tontineId]),
       'updatedAt': FieldValue.serverTimestamp(),
     });
@@ -231,7 +237,7 @@ class FirestoreDatabaseService {
 
   /// Retire une tontine de la liste des tontines de l'utilisateur.
   Future<void> removeTontineFromUser(String uid, String tontineId) async {
-    await _users.doc(uid).update({
+    await _users.doc(_normalizeUid(uid)).update({
       'tontines': FieldValue.arrayRemove([tontineId]),
       'updatedAt': FieldValue.serverTimestamp(),
     });
@@ -239,7 +245,7 @@ class FirestoreDatabaseService {
 
   /// Met à jour le mode actif utilisateur pour la recherche de tontine.
   Future<void> updateUserActiveMode(String uid, bool isActive) async {
-    await _users.doc(uid).set({
+    await _users.doc(_normalizeUid(uid)).set({
       'isLookingForTontine': isActive,
       'activeMode': isActive,
       'activeSearchStatus': isActive
@@ -908,7 +914,7 @@ class FirestoreDatabaseService {
     final currentSolde = (userDoc['solde'] as num?)?.toDouble() ?? 0;
     final newSolde = currentSolde + amount;
 
-    await _users.doc(userId).update({
+    await _users.doc(_normalizeUid(userId)).update({
       'solde': newSolde,
       'updatedAt': FieldValue.serverTimestamp(),
     });
@@ -942,7 +948,7 @@ class FirestoreDatabaseService {
 
     final newSolde = currentSolde - amount;
 
-    await _users.doc(userId).update({
+    await _users.doc(_normalizeUid(userId)).update({
       'solde': newSolde,
       'updatedAt': FieldValue.serverTimestamp(),
     });
