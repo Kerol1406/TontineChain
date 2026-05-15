@@ -273,10 +273,11 @@ class FirebaseAuthService {
   /// Envoie un code SMS pour vérification du numéro de téléphone.
   /// Retourne la verificationId à utiliser pour la confirmation.
   Future<String> sendPhoneVerificationCode(String phone) async {
+    final normalizedPhone = _normalizePhone(phone);
     final completer = Completer<String>();
 
     await _firebaseAuth.verifyPhoneNumber(
-      phoneNumber: phone,
+      phoneNumber: normalizedPhone,
       verificationCompleted: (PhoneAuthCredential credential) {
         if (credential.verificationId != null && !completer.isCompleted) {
           completer.complete(credential.verificationId!);
